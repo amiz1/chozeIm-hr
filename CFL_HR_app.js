@@ -186,27 +186,79 @@ async function showClient(email) {
   const c = r.client;
   const sentCount = r.questionnaires.filter(q => q.sentAt).length;
 
-  const blocks = r.questionnaires.map(q => {
-    if (!q.sentAt) {
-      return el('div', { class: 'qblock pending' },
-        el('div', { class: 'qhead' }, el('span', { class: 'qtitle' }, q.title), el('span', { class: 'badge wait' }, 'טרם נשלח')));
-    }
-    return el('details', { class: 'qblock' },
-      el('summary', { class: 'qhead' }, el('span', { class: 'qtitle' }, q.title),
-        el('span', { class: 'badge sent' }, 'נשלח ' + q.sentAt + (q.updatedAt && q.updatedAt !== q.sentAt ? ' · עודכן ' + q.updatedAt : ''))),
-      answerViews(q, c));
-  });
+  const blocks = r.questionnaires.map(q => questionnaireRow(q, c));
 
   const genderWord = c.gender === 'f' ? 'נקבה' : c.gender === 'm' ? 'זכר' : 'לא נבחרה';
   render(menu('clients'), backLink(),
     el('h1', {}, c.name || c.email),
     el('p', { class: 'sub' }, el('span', { dir: 'ltr' }, c.email), ' · נרשם/ה ' + (c.created || '—') + ' · לשון פניה: ' + genderWord + ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' שאלונים נשלחו'),
     blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
-    sentCount ? el('p', { class: 'muted small' }, 'לחיצה על שאלון פותחת את התשובות.') : null);
+    null);
   window.scrollTo(0, 0);
 }
 
-// Inside an opened questionnaire: "טקסט" (default) | "סיכום לנועץ" | "תשובות הנועץ" | "העתקה"
+// One questionnaire on the נועץ page: title, "פתוח לנועץ" switch, status, and the answers button when sent
+function questionnaireRow(q, client) {
+  const row = el('div', { class: 'qblock' });
+  const saved = el('span', { class: 'saved-note', 'aria-live': 'polite' });
+  const input = el('input', { type: 'checkbox', role: 'switch', checked: q.open, 'aria-label': 'פתוח לנועץ – ' + q.title });
+  const status = el('span', { class: 'qside' });
+
+  function paint() {
+    row.classList.toggle('pending', !q.sentAt);
+    row.classList.toggle('closed', !q.open);
+    const parts = [];
+    if (q.sentAt) {
+      parts.push(el('span', { class: 'badge sent' }, sentLabel(q)));
+      if (!q.open) parts.push(el('span', { class: 'badge wait' }, 'סגור · לצפייה בלבד אצל הנועץ'));
+      parts.push(el('button', { type: 'button', class: 'btn primary small open-answers', onclick: () => openAnswers(q, client) }, 'צפייה בתשובות'));
+    } else {
+      parts.push(el('span', { class: 'badge wait' }, q.open ? 'פתוח · טרם נשלח' : 'סגור'));
+    }
+    status.replaceChildren(...parts);
+  }
+
+  input.addEventListener('change', async () => {
+    const want = input.checked;
+    input.disabled = true; saved.textContent = 'שומר…';
+    const r = await api('setAccess', { email: client.email, id: q.id, open: want });
+    input.disabled = false;
+    if (!r.ok) { input.checked = !want; saved.textContent = r.handled ? '' : (r.message || 'השמירה לא הצליחה'); return; }
+    q.open = want; paint();
+    saved.textContent = want ? 'נפתח לנועץ' : 'נסגר לנועץ';
+    setTimeout(() => { saved.textContent = ''; }, 2200);
+  });
+
+  row.append(el('div', { class: 'qhead' },
+    el('span', { class: 'qtitle' }, q.title),
+    el('span', { class: 'qcontrols' },
+      el('label', { class: 'switch' }, input, el('span', { class: 'track' }), el('span', { class: 'switch-label' }, 'פתוח לנועץ')),
+      saved, status)));
+  paint();
+  return row;
+}
+
+function sentLabel(q) {
+  return 'נשלח ' + q.sentAt + (q.updatedAt && q.updatedAt !== q.sentAt ? ' · עודכן ' + q.updatedAt : '');
+}
+
+// The answers of one questionnaire, in a popup over the page (closes with ✕, Esc or a click outside)
+function openAnswers(q, client) {
+  const dlg = el('dialog', { class: 'qmodal', 'aria-label': q.title + ' – ' + (client.name || client.email) });
+  const close = () => { dlg.close(); };
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); }); // a click on the dimmed area outside
+  dlg.append(
+    el('div', { class: 'mhead' },
+      el('div', {}, el('div', { class: 'mtitle' }, q.title), el('div', { class: 'msub' }, (client.name || client.email) + ' · ' + sentLabel(q))),
+      el('button', { type: 'button', class: 'mclose', 'aria-label': 'סגירה', onclick: close }, '✕')),
+    answerViews(q, client));
+  document.body.append(dlg);
+  dlg.showModal();
+  return dlg;
+}
+
+// Inside the popup: "טקסט" (default) | "סיכום לנועץ" | "תשובות הנועץ" | "העתקה"
 function answerViews(q, client) {
   const text = el('div', { class: 'answers' }, q.summary || '—');
   const canShow = !!(q.page && q.state && typeof CFL_HR_CLIENT_SITE === 'string');
@@ -217,7 +269,7 @@ function answerViews(q, client) {
   function pick(key) {
     if (!panes[key]) { // the two page views are built the first time they're opened
       panes[key] = el('div', { class: 'visual' }, clientFrame(q, client, key === 'answers' ? 'view-answers' : 'view'));
-      body.append(panes[key]);
+      area.append(panes[key]);
     }
     Object.keys(panes).forEach(k => { panes[k].hidden = k !== key; });
     Object.keys(tabs).forEach(k => tabs[k].classList.toggle('on', k === key));
@@ -230,14 +282,14 @@ function answerViews(q, client) {
     setTimeout(() => { copied.textContent = ''; }, 2200);
   } }, 'העתקה');
 
-  const body = el('div', { class: 'qbody' },
+  const area = el('div', { class: 'panes' }, text);
+  return el('div', { class: 'qbody' },
     el('div', { class: 'toolbar' },
       el('div', { class: 'segs' }, tab('text', 'טקסט'),
         canShow ? tab('results', 'סיכום לנועץ') : null,
         canShow ? tab('answers', 'תשובות הנועץ') : null),
       el('div', {}, copied, copyBtn)),
-    text);
-  return body;
+    area);
 }
 
 // The questionnaire page from the נועצים site, read-only, fed with the saved answers from here.
@@ -252,12 +304,8 @@ function clientFrame(q, client, mode) {
       name: client.name, gender: client.gender }, origin);
   };
   window.addEventListener('message', onMsg);
-  // Grow the frame with its content (both sites share the same address, so the height can be read)
-  const fit = () => {
-    if (!frame.isConnected) { clearInterval(timer); window.removeEventListener('message', onMsg); return; }
-    try { const h = frame.contentDocument.documentElement.scrollHeight; if (h) frame.style.height = h + 'px'; } catch (e) { }
-  };
-  const timer = setInterval(fit, 400);
+  // stop listening once the popup is closed
+  const watch = setInterval(() => { if (!frame.isConnected) { clearInterval(watch); window.removeEventListener('message', onMsg); } }, 1000);
   return frame;
 }
 
