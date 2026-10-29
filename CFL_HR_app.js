@@ -25,8 +25,11 @@ async function api(action, data) {
   } catch (e) {
     return { ok: false, message: 'אין חיבור לשרת. בדקו את החיבור לאינטרנט ונסו שוב.' };
   }
-  let out;
-  try { out = await res.json(); } catch (e) { return { ok: false, message: 'תקלה בשרת. נסו שוב מאוחר יותר.' }; }
+  let out, text = '';
+  try { text = await res.text(); out = JSON.parse(text); } catch (e) {
+    console.error('HR server reply was not data. Status ' + res.status + ':', text.slice(0, 2000));
+    return { ok: false, message: 'השרת החזיר תשובה לא צפויה (בדרך כלל: הרשאות הסקריפט לא אושרו, או שהפריסה אינה פתוחה ל-Anyone). פרטים במסוף הדפדפן.' };
+  }
   if (out.auth === false) {
     setToken(null);
     showLogin(out.message);
@@ -111,19 +114,107 @@ async function logout() {
 }
 logoutBtn.addEventListener('click', logout);
 
-// ===================== Home: staff list + add staff =====================
-async function showHome(notice) {
-  render(el('p', { class: 'loading' }, 'טוען…'));
+// ===================== Signed-in screens: menu, clients, one client, staff =====================
+async function ensureMe() {
   if (!me) {
     const r = await api('hrMe');
-    if (!r.ok) { if (!r.handled) showLogin(r.message); return; }
+    if (!r.ok) { if (!r.handled) showLogin(r.message); return false; }
     me = { name: r.name, email: r.email };
   }
   navName.textContent = me.name || me.email;
   logoutBtn.hidden = false;
+  return true;
+}
 
+function menu(active) {
+  const item = (key, label, go) => el('button', {
+    type: 'button', class: 'menu-item' + (active === key ? ' on' : ''), 'aria-current': active === key ? 'page' : null, onclick: go
+  }, label);
+  return el('nav', { class: 'menu' }, item('clients', 'לקוחות', () => showClients()), item('staff', 'צוות', () => showStaff()));
+}
+
+function loading(active) { render(menu(active), el('p', { class: 'loading' }, 'טוען…')); }
+
+async function showHome() { await showClients(); }
+
+// ---------- client list ----------
+let clientSearch = '';
+async function showClients() {
+  if (!(await ensureMe())) return;
+  loading('clients');
+  const r = await api('clientList');
+  if (!r.ok) { if (!r.handled) render(menu('clients'), msgBox(r.message)); return; }
+
+  const total = r.questionnaires.length;
+  const search = el('input', { type: 'search', class: 'search', placeholder: 'חיפוש לפי שם או אימייל', value: clientSearch, 'aria-label': 'חיפוש לקוח' });
+  const tableBox = el('div');
+  const count = el('p', { class: 'muted small' });
+
+  function draw() {
+    const q = search.value.trim().toLowerCase();
+    clientSearch = search.value;
+    const list = r.clients.filter(c => !q || c.name.toLowerCase().includes(q) || c.email.includes(q));
+    count.textContent = list.length === r.clients.length ? r.clients.length + ' לקוחות' : list.length + ' מתוך ' + r.clients.length + ' לקוחות';
+    if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, r.clients.length ? 'אין תוצאות לחיפוש הזה.' : 'עדיין אין לקוחות רשומים.')); return; }
+    const rows = list.map(c => el('tr', { class: 'clickable', tabindex: '0',
+      onclick: () => showClient(c.email),
+      onkeydown: (e) => { if (e.key === 'Enter') showClient(c.email); } },
+      el('td', {}, el('b', {}, c.name || '—')),
+      el('td', { dir: 'ltr', class: 'mail' }, c.email),
+      el('td', {}, c.created || '—'),
+      el('td', {}, el('span', { class: 'count' + (c.sent.length ? ' some' : '') }, c.sent.length + ' / ' + total),
+        c.sent.length ? el('span', { class: 'sent-list' }, ' ' + c.sent.map(s => s.title).join(' · ')) : null)));
+    tableBox.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'staff clients' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'שם'), el('th', {}, 'אימייל'), el('th', {}, 'נרשם/ה'), el('th', {}, 'שאלונים שנשלחו'))),
+      el('tbody', {}, rows))));
+  }
+  search.addEventListener('input', draw);
+  draw();
+
+  render(menu('clients'),
+    el('h1', {}, 'לקוחות'),
+    el('p', { class: 'sub' }, 'בחרו לקוח/ה כדי לראות את התשובות לשאלונים.'),
+    el('div', { class: 'card' }, search, count, tableBox));
+}
+
+// ---------- one client ----------
+async function showClient(email) {
+  if (!(await ensureMe())) return;
+  loading('clients');
+  const r = await api('clientGet', { email: email });
+  if (!r.ok) { if (!r.handled) render(menu('clients'), backLink(), msgBox(r.message)); return; }
+  const c = r.client;
+  const sentCount = r.questionnaires.filter(q => q.sentAt).length;
+
+  const blocks = r.questionnaires.map(q => {
+    if (!q.sentAt) {
+      return el('div', { class: 'qblock pending' },
+        el('div', { class: 'qhead' }, el('span', { class: 'qtitle' }, q.title), el('span', { class: 'badge wait' }, 'טרם נשלח')));
+    }
+    return el('details', { class: 'qblock' },
+      el('summary', { class: 'qhead' }, el('span', { class: 'qtitle' }, q.title),
+        el('span', { class: 'badge sent' }, 'נשלח ' + q.sentAt)),
+      el('div', { class: 'answers' }, q.summary || '—'));
+  });
+
+  render(menu('clients'), backLink(),
+    el('h1', {}, c.name || c.email),
+    el('p', { class: 'sub' }, el('span', { dir: 'ltr' }, c.email), ' · נרשם/ה ' + (c.created || '—') + ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' שאלונים נשלחו'),
+    blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
+    sentCount ? el('p', { class: 'muted small' }, 'לחיצה על שאלון פותחת את התשובות.') : null);
+  window.scrollTo(0, 0);
+}
+
+function backLink() {
+  return el('div', { class: 'back' }, el('button', { type: 'button', class: 'link-btn', onclick: () => showClients() }, '→ חזרה לרשימת הלקוחות'));
+}
+
+// ---------- staff ----------
+async function showStaff() {
+  if (!(await ensureMe())) return;
+  loading('staff');
   const list = await api('staffList');
-  if (!list.ok) { if (!list.handled) render(msgBox(list.message)); return; }
+  if (!list.ok) { if (!list.handled) render(menu('staff'), msgBox(list.message)); return; }
 
   const tableBox = el('div');
   drawStaff(tableBox, list.staff);
@@ -132,6 +223,7 @@ async function showHome(notice) {
   const email = el('input', { type: 'email', dir: 'ltr', required: true, placeholder: 'name@gmail.com' });
   const name = el('input', { type: 'text', required: true, maxlength: '60' });
   const addBtn = el('button', { type: 'submit', class: 'btn primary' }, 'הוספה');
+  const openBtn = el('button', { type: 'button', class: 'btn primary', onclick: () => { form.hidden = false; openBtn.hidden = true; email.focus(); } }, 'הוסף חבר צוות');
   const form = el('form', {
     class: 'add-form', hidden: true,
     onsubmit: async (e) => {
@@ -153,16 +245,11 @@ async function showHome(notice) {
     el('p', { class: 'hint' }, 'יש להזין את הכתובת בדיוק כמו בחשבון ה-Google של חבר/ת הצוות.'),
     el('div', { class: 'row' }, addBtn,
       el('button', { type: 'button', class: 'btn secondary', onclick: () => { form.hidden = true; openBtn.hidden = false; } }, 'ביטול')));
-  const openBtn = el('button', { type: 'button', class: 'btn primary', onclick: () => { form.hidden = false; openBtn.hidden = true; email.focus(); } }, 'הוסף חבר צוות');
 
-  render(
-    notice ? msgBox(notice, 'success') : null,
-    el('h1', {}, 'שלום, ' + (me.name || me.email)),
-    el('p', { class: 'sub' }, 'ממשק הצוות. כאן יתווספו בהמשך הלקוחות והשאלונים שלהם.'),
-    el('div', { class: 'card' },
-      el('h2', {}, 'חברי צוות'),
-      tableBox, addMsg, openBtn, form)
-  );
+  render(menu('staff'),
+    el('h1', {}, 'צוות'),
+    el('p', { class: 'sub' }, 'מי יכול/ה להיכנס לממשק הצוות.'),
+    el('div', { class: 'card' }, tableBox, addMsg, openBtn, form));
 }
 
 function drawStaff(box, staff) {
