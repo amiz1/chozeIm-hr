@@ -114,3 +114,17 @@ details.qblock[open] .qtitle::before { transform: rotate(-90deg); }
   white-space: pre-wrap; font-size: 15px; line-height: 1.75; padding: 16px 18px 20px;
   border-top: 1px solid var(--rule); background: var(--tint2);
 }
+
+
+/* Inside an opened questionnaire: view switch + copy */
+.qbody { border-top: 1px solid var(--rule); }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 18px; background: var(--card); }
+.segs { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg { background: var(--card); border: 1px solid var(--rule); padding: 6px 14px; font-size: 14px; font-weight: 500; color: var(--mute); cursor: pointer; }
+.seg:hover { border-color: var(--olive); color: var(--ink); }
+.seg.on { background: var(--olive); border-color: var(--olive); color: #fff; }
+.seg.copy { color: var(--olive); border-color: var(--olive); }
+.copied { font-size: 13px; color: var(--olive); margin-left: 10px; }
+.qbody .answers { border-top: 1px solid var(--rule); }
+.visual { border-top: 1px solid var(--rule); background: #FAF9F5; }
+.client-frame { display: block; width: 100%; height: 700px; border: 0; }

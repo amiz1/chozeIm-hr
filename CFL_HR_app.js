@@ -194,15 +194,71 @@ async function showClient(email) {
     return el('details', { class: 'qblock' },
       el('summary', { class: 'qhead' }, el('span', { class: 'qtitle' }, q.title),
         el('span', { class: 'badge sent' }, 'נשלח ' + q.sentAt)),
-      el('div', { class: 'answers' }, q.summary || '—'));
+      answerViews(q, c));
   });
 
+  const genderWord = c.gender === 'f' ? 'נקבה' : c.gender === 'm' ? 'זכר' : 'לא נבחרה';
   render(menu('clients'), backLink(),
     el('h1', {}, c.name || c.email),
-    el('p', { class: 'sub' }, el('span', { dir: 'ltr' }, c.email), ' · נרשם/ה ' + (c.created || '—') + ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' שאלונים נשלחו'),
+    el('p', { class: 'sub' }, el('span', { dir: 'ltr' }, c.email), ' · נרשם/ה ' + (c.created || '—') + ' · לשון פניה: ' + genderWord + ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' שאלונים נשלחו'),
     blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
     sentCount ? el('p', { class: 'muted small' }, 'לחיצה על שאלון פותחת את התשובות.') : null);
   window.scrollTo(0, 0);
+}
+
+// Inside an opened questionnaire: "טקסט" (default) | "תצוגה כמו אצל הלקוח" | "העתקה"
+function answerViews(q, client) {
+  const text = el('div', { class: 'answers' }, q.summary || '—');
+  const visual = el('div', { class: 'visual', hidden: true });
+  const copied = el('span', { class: 'copied', 'aria-live': 'polite' });
+  const canShow = !!(q.page && q.state && typeof CFL_HR_CLIENT_SITE === 'string');
+  let frameMade = false;
+
+  const tab = (label, on, go) => el('button', { type: 'button', class: 'seg' + (on ? ' on' : ''), onclick: go }, label);
+  const tText = tab('טקסט', true, () => pick(false));
+  const tVisual = canShow ? tab('תצוגה כמו אצל הלקוח', false, () => pick(true)) : null;
+  function pick(showVisual) {
+    text.hidden = showVisual; visual.hidden = !showVisual;
+    tText.classList.toggle('on', !showVisual); if (tVisual) tVisual.classList.toggle('on', showVisual);
+    if (showVisual && !frameMade) { frameMade = true; visual.append(clientFrame(q, client)); }
+  }
+  const copyBtn = el('button', { type: 'button', class: 'seg copy', onclick: async () => {
+    const ok = await copyText(q.summary || '');
+    copied.textContent = ok ? 'הועתק' : 'ההעתקה לא הצליחה';
+    setTimeout(() => { copied.textContent = ''; }, 2200);
+  } }, 'העתקה');
+
+  return el('div', { class: 'qbody' },
+    el('div', { class: 'toolbar' }, el('div', { class: 'segs' }, tText, tVisual), el('div', {}, copied, copyBtn)),
+    text, visual);
+}
+
+// The client's own results screen, from the client site, read-only. It receives the saved answers from here.
+function clientFrame(q, client) {
+  const src = CFL_HR_CLIENT_SITE + q.page + '#view';
+  const origin = new URL(src, location.href).origin;
+  const frame = el('iframe', { class: 'client-frame', title: q.title + ' – כפי שהלקוח/ה רואה', src: src, loading: 'lazy' });
+  const onMsg = (e) => {
+    if (e.source !== frame.contentWindow || e.origin !== origin || !e.data || e.data.type !== 'cfl-view-ready') return;
+    frame.contentWindow.postMessage({ type: 'cfl-view', state: q.state, submittedAt: q.sentAt,
+      name: client.name, gender: client.gender }, origin);
+  };
+  window.addEventListener('message', onMsg);
+  // Grow the frame with its content (both sites share the same address, so the height can be read)
+  const fit = () => {
+    if (!frame.isConnected) { clearInterval(timer); window.removeEventListener('message', onMsg); return; }
+    try { const h = frame.contentDocument.documentElement.scrollHeight; if (h) frame.style.height = h + 'px'; } catch (e) { }
+  };
+  const timer = setInterval(fit, 400);
+  return frame;
+}
+
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) {
+    const ta = el('textarea', { style: 'position:fixed;opacity:0' }); ta.value = t; document.body.append(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (_) { }
+    ta.remove(); return ok;
+  }
 }
 
 function backLink() {
