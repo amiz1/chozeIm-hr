@@ -1,4 +1,4 @@
-// חוזה עם החיים (CFL) – ממשק צוות, צד לקוח
+// חוזה עם החיים (CFL) – ממשק יועצים, צד הדפדפן
 // The login is kept in sessionStorage: it lasts for this browser tab only and is gone when the tab closes.
 const HR_TOKEN_KEY = 'cfl_hr_token';
 
@@ -76,8 +76,8 @@ function showLogin(message) {
   if (message) msg.append(msgBox(message));
   const btnBox = el('div', { id: 'gbtn', class: 'gbtn' });
   render(el('div', { class: 'card auth-card' },
-    el('h1', {}, 'כניסה לצוות'),
-    el('p', { class: 'sub' }, 'הכניסה עם חשבון Google, לאנשי צוות מורשים בלבד.'),
+    el('h1', {}, 'כניסה ליועצים'),
+    el('p', { class: 'sub' }, 'הכניסה עם חשבון Google, ליועצים מורשים בלבד.'),
     msg, btnBox));
 
   if (!gsiReady || !window.google || !google.accounts || !google.accounts.id) {
@@ -130,7 +130,7 @@ function menu(active) {
   const item = (key, label, go) => el('button', {
     type: 'button', class: 'menu-item' + (active === key ? ' on' : ''), 'aria-current': active === key ? 'page' : null, onclick: go
   }, label);
-  return el('nav', { class: 'menu' }, item('clients', 'לקוחות', () => showClients()), item('staff', 'צוות', () => showStaff()));
+  return el('nav', { class: 'menu' }, item('clients', 'נועצים', () => showClients()), item('staff', 'יועצים', () => showStaff()));
 }
 
 function loading(active) { render(menu(active), el('p', { class: 'loading' }, 'טוען…')); }
@@ -146,7 +146,7 @@ async function showClients() {
   if (!r.ok) { if (!r.handled) render(menu('clients'), msgBox(r.message)); return; }
 
   const total = r.questionnaires.length;
-  const search = el('input', { type: 'search', class: 'search', placeholder: 'חיפוש לפי שם או אימייל', value: clientSearch, 'aria-label': 'חיפוש לקוח' });
+  const search = el('input', { type: 'search', class: 'search', placeholder: 'חיפוש לפי שם או אימייל', value: clientSearch, 'aria-label': 'חיפוש נועץ' });
   const tableBox = el('div');
   const count = el('p', { class: 'muted small' });
 
@@ -154,8 +154,8 @@ async function showClients() {
     const q = search.value.trim().toLowerCase();
     clientSearch = search.value;
     const list = r.clients.filter(c => !q || c.name.toLowerCase().includes(q) || c.email.includes(q));
-    count.textContent = list.length === r.clients.length ? r.clients.length + ' לקוחות' : list.length + ' מתוך ' + r.clients.length + ' לקוחות';
-    if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, r.clients.length ? 'אין תוצאות לחיפוש הזה.' : 'עדיין אין לקוחות רשומים.')); return; }
+    count.textContent = list.length === r.clients.length ? r.clients.length + ' נועצים' : list.length + ' מתוך ' + r.clients.length + ' נועצים';
+    if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, r.clients.length ? 'אין תוצאות לחיפוש הזה.' : 'עדיין אין נועצים רשומים.')); return; }
     const rows = list.map(c => el('tr', { class: 'clickable', tabindex: '0',
       onclick: () => showClient(c.email),
       onkeydown: (e) => { if (e.key === 'Enter') showClient(c.email); } },
@@ -172,8 +172,8 @@ async function showClients() {
   draw();
 
   render(menu('clients'),
-    el('h1', {}, 'לקוחות'),
-    el('p', { class: 'sub' }, 'בחרו לקוח/ה כדי לראות את התשובות לשאלונים.'),
+    el('h1', {}, 'נועצים'),
+    el('p', { class: 'sub' }, 'בחרו נועץ/ת כדי לראות את התשובות לשאלונים.'),
     el('div', { class: 'card' }, search, count, tableBox));
 }
 
@@ -193,7 +193,7 @@ async function showClient(email) {
     }
     return el('details', { class: 'qblock' },
       el('summary', { class: 'qhead' }, el('span', { class: 'qtitle' }, q.title),
-        el('span', { class: 'badge sent' }, 'נשלח ' + q.sentAt)),
+        el('span', { class: 'badge sent' }, 'נשלח ' + q.sentAt + (q.updatedAt && q.updatedAt !== q.sentAt ? ' · עודכן ' + q.updatedAt : ''))),
       answerViews(q, c));
   });
 
@@ -206,41 +206,49 @@ async function showClient(email) {
   window.scrollTo(0, 0);
 }
 
-// Inside an opened questionnaire: "טקסט" (default) | "תצוגה כמו אצל הלקוח" | "העתקה"
+// Inside an opened questionnaire: "טקסט" (default) | "סיכום לנועץ" | "תשובות הנועץ" | "העתקה"
 function answerViews(q, client) {
   const text = el('div', { class: 'answers' }, q.summary || '—');
-  const visual = el('div', { class: 'visual', hidden: true });
-  const copied = el('span', { class: 'copied', 'aria-live': 'polite' });
   const canShow = !!(q.page && q.state && typeof CFL_HR_CLIENT_SITE === 'string');
-  let frameMade = false;
+  const panes = { text: text };
+  const tabs = {};
+  const copied = el('span', { class: 'copied', 'aria-live': 'polite' });
 
-  const tab = (label, on, go) => el('button', { type: 'button', class: 'seg' + (on ? ' on' : ''), onclick: go }, label);
-  const tText = tab('טקסט', true, () => pick(false));
-  const tVisual = canShow ? tab('תצוגה כמו אצל הלקוח', false, () => pick(true)) : null;
-  function pick(showVisual) {
-    text.hidden = showVisual; visual.hidden = !showVisual;
-    tText.classList.toggle('on', !showVisual); if (tVisual) tVisual.classList.toggle('on', showVisual);
-    if (showVisual && !frameMade) { frameMade = true; visual.append(clientFrame(q, client)); }
+  function pick(key) {
+    if (!panes[key]) { // the two page views are built the first time they're opened
+      panes[key] = el('div', { class: 'visual' }, clientFrame(q, client, key === 'answers' ? 'view-answers' : 'view'));
+      body.append(panes[key]);
+    }
+    Object.keys(panes).forEach(k => { panes[k].hidden = k !== key; });
+    Object.keys(tabs).forEach(k => tabs[k].classList.toggle('on', k === key));
   }
+  const tab = (key, label) => (tabs[key] = el('button', { type: 'button', class: 'seg' + (key === 'text' ? ' on' : ''), onclick: () => pick(key) }, label));
+
   const copyBtn = el('button', { type: 'button', class: 'seg copy', onclick: async () => {
     const ok = await copyText(q.summary || '');
     copied.textContent = ok ? 'הועתק' : 'ההעתקה לא הצליחה';
     setTimeout(() => { copied.textContent = ''; }, 2200);
   } }, 'העתקה');
 
-  return el('div', { class: 'qbody' },
-    el('div', { class: 'toolbar' }, el('div', { class: 'segs' }, tText, tVisual), el('div', {}, copied, copyBtn)),
-    text, visual);
+  const body = el('div', { class: 'qbody' },
+    el('div', { class: 'toolbar' },
+      el('div', { class: 'segs' }, tab('text', 'טקסט'),
+        canShow ? tab('results', 'סיכום לנועץ') : null,
+        canShow ? tab('answers', 'תשובות הנועץ') : null),
+      el('div', {}, copied, copyBtn)),
+    text);
+  return body;
 }
 
-// The client's own results screen, from the client site, read-only. It receives the saved answers from here.
-function clientFrame(q, client) {
-  const src = CFL_HR_CLIENT_SITE + q.page + '#view';
+// The questionnaire page from the נועצים site, read-only, fed with the saved answers from here.
+// mode: 'view' = the summary screen, 'view-answers' = the questionnaire with the answers filled in
+function clientFrame(q, client, mode) {
+  const src = CFL_HR_CLIENT_SITE + q.page + '#' + mode;
   const origin = new URL(src, location.href).origin;
-  const frame = el('iframe', { class: 'client-frame', title: q.title + ' – כפי שהלקוח/ה רואה', src: src, loading: 'lazy' });
+  const frame = el('iframe', { class: 'client-frame', title: q.title + ' – ' + (mode === 'view' ? 'סיכום לנועץ' : 'תשובות הנועץ'), src: src, loading: 'lazy' });
   const onMsg = (e) => {
     if (e.source !== frame.contentWindow || e.origin !== origin || !e.data || e.data.type !== 'cfl-view-ready') return;
-    frame.contentWindow.postMessage({ type: 'cfl-view', state: q.state, submittedAt: q.sentAt,
+    frame.contentWindow.postMessage({ type: 'cfl-view', state: q.state, submittedAt: q.sentAt, updatedAt: q.updatedAt,
       name: client.name, gender: client.gender }, origin);
   };
   window.addEventListener('message', onMsg);
@@ -262,7 +270,7 @@ async function copyText(t) {
 }
 
 function backLink() {
-  return el('div', { class: 'back' }, el('button', { type: 'button', class: 'link-btn', onclick: () => showClients() }, '→ חזרה לרשימת הלקוחות'));
+  return el('div', { class: 'back' }, el('button', { type: 'button', class: 'link-btn', onclick: () => showClients() }, '→ חזרה לרשימת הנועצים'));
 }
 
 // ---------- staff ----------
@@ -279,7 +287,7 @@ async function showStaff() {
   const email = el('input', { type: 'email', dir: 'ltr', required: true, placeholder: 'name@gmail.com' });
   const name = el('input', { type: 'text', required: true, maxlength: '60' });
   const addBtn = el('button', { type: 'submit', class: 'btn primary' }, 'הוספה');
-  const openBtn = el('button', { type: 'button', class: 'btn primary', onclick: () => { form.hidden = false; openBtn.hidden = true; email.focus(); } }, 'הוסף חבר צוות');
+  const openBtn = el('button', { type: 'button', class: 'btn primary', onclick: () => { form.hidden = false; openBtn.hidden = true; email.focus(); } }, 'הוסף יועץ/ת');
   const form = el('form', {
     class: 'add-form', hidden: true,
     onsubmit: async (e) => {
@@ -289,7 +297,7 @@ async function showStaff() {
         const r = await api('staffAdd', { email: email.value, name: name.value });
         if (!r.ok) { if (!r.handled) addMsg.append(msgBox(r.message)); return; }
         drawStaff(tableBox, r.staff);
-        addMsg.append(msgBox(name.value.trim() + ' נוסף/ה לצוות. מעכשיו אפשר להיכנס עם חשבון ה-Google של ' + email.value.trim().toLowerCase() + '.', 'success'));
+        addMsg.append(msgBox(name.value.trim() + ' נוסף/ה ליועצים. מעכשיו אפשר להיכנס עם חשבון ה-Google של ' + email.value.trim().toLowerCase() + '.', 'success'));
         email.value = ''; name.value = '';
         form.hidden = true;
         openBtn.hidden = false;
@@ -298,13 +306,13 @@ async function showStaff() {
   },
     field('אימייל של חשבון Google', email),
     field('שם מלא', name),
-    el('p', { class: 'hint' }, 'יש להזין את הכתובת בדיוק כמו בחשבון ה-Google של חבר/ת הצוות.'),
+    el('p', { class: 'hint' }, 'יש להזין את הכתובת בדיוק כמו בחשבון ה-Google של היועץ/ת.'),
     el('div', { class: 'row' }, addBtn,
       el('button', { type: 'button', class: 'btn secondary', onclick: () => { form.hidden = true; openBtn.hidden = false; } }, 'ביטול')));
 
   render(menu('staff'),
-    el('h1', {}, 'צוות'),
-    el('p', { class: 'sub' }, 'מי יכול/ה להיכנס לממשק הצוות.'),
+    el('h1', {}, 'יועצים'),
+    el('p', { class: 'sub' }, 'מי יכול/ה להיכנס לממשק היועצים.'),
     el('div', { class: 'card' }, tableBox, addMsg, openBtn, form));
 }
 
@@ -321,7 +329,7 @@ function drawStaff(box, staff) {
 
 // ===================== Start =====================
 if (CFL_HR_API_URL.indexOf('PASTE_') === 0) {
-  render(msgBox('ממשק הצוות עדיין לא חובר לשרת: יש להדביק את כתובת ה-Web App בקובץ CFL_HR_config.js.'));
+  render(msgBox('ממשק היועצים עדיין לא חובר לשרת: יש להדביק את כתובת ה-Web App בקובץ CFL_HR_config.js.'));
 } else if (getToken()) {
   showHome();
 } else {
