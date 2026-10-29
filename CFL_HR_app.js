@@ -610,9 +610,43 @@ function openAnswers(q, client, start) {
   return dlg;
 }
 
+// גמישות בלמידה: tolerance for ambiguity, from 6 of the 50 statements (as in Nurit's page; for יועצים only)
+const AMB = [[5, 0, 'נוח לי במצבים עמומים שאין בהם פתרון אחד ברור'], [9, 1, 'מתקשה להחליט כל עוד לא ברור כל המידע'],
+  [22, 0, 'מתנדב/ת להוביל משימות שעוד לא הוגדרו'], [31, 0, 'משיג/ה יעדים גם באי־ודאות'],
+  [32, 1, 'כשהכללים לא ברורים, מתקשה להפיק תוצאות'], [36, 1, 'כשמשימה נתקעת, ממתין/ה להנחיה מלמעלה']];
+function ambRead(text) {
+  text = String(text || '');
+  const i = text.indexOf('הדירוגים המלאים');
+  if (i < 0) return null;
+  const sc = {};
+  text.slice(i).replace(/^\s*(\d+)\.\s*(\d)\s*$/gm, (x, n, v) => { sc[+n] = +v; return x; });
+  const it = AMB.map(([n, r, l]) => ({ n, r, l, raw: sc[n] || 0, v: sc[n] ? (r ? 7 - sc[n] : sc[n]) : null })).filter(x => x.v != null);
+  if (it.length < 4) return null;
+  const avg = it.reduce((a, x) => a + x.v, 0) / it.length;
+  const m = a => a.length ? a.reduce((s, x) => s + x.v, 0) / a.length : null;
+  const P = it.filter(x => !x.r), R = it.filter(x => x.r);
+  const gap = (m(P) != null && m(R) != null) ? Math.abs(m(P) - m(R)) : 0;
+  const lv = avg >= 4.8 ? 'גבוהה' : avg >= 3.3 ? 'בינונית' : 'נמוכה';
+  const tx = lv === 'גבוהה' ? 'נוח לו/ה לפעול גם כשהתמונה לא ברורה. זה משאב משמעותי בצומת. כדאי לבדוק בשיחה אם זה נכון גם כשהעמימות נוגעת בו/ה אישית (פרנסה, זהות), ולא רק במשימות בעבודה.'
+    : lv === 'בינונית' ? 'מתמודד/ת עם עמימות, אבל זה דורש מאמץ. כדאי לשאול: מה עוזר לך לפעול כשעוד לא הכול ברור? ומה עוצר אותך?'
+      : 'עמימות מקשה עליו/ה לפעול. בצומת, שבה הרבה עוד לא ידוע, כדאי לבנות צעדים קטנים עם נקודות ביניים ברורות, ולהכיר בקושי בלי לשפוט אותו.';
+  return { avg: +avg.toFixed(1), lv, tx, it, gap };
+}
+function ambCard(text) {
+  const r = ambRead(text);
+  if (!r) return null;
+  return el('div', { class: 'card amb-card' },
+    el('b', {}, 'סובלנות לעמימות (ליועצים בלבד): ' + r.avg + ' מתוך 6 · ' + r.lv),
+    el('p', {}, r.tx),
+    r.gap >= 2 ? el('p', { class: 'small amb-warn' }, 'שימו לב: התשובות לא עקביות. במשפטים החיוביים ובמשפטים ההפוכים התקבלה תמונה שונה. כדאי לברר בשיחה.') : null,
+    el('details', {}, el('summary', { class: 'small' }, 'על מה זה נשען'),
+      el('ul', { class: 'small' }, r.it.map(x => el('li', {}, x.l + ': ' + x.raw + ' מתוך 6' + (x.r ? ' (משפט הפוך)' : ''))))),
+    el('p', { class: 'small muted' }, 'מדד שהרכבנו מ־6 משפטים בשאלון. הוא לא נבדק כמדד נפרד, ורוב המשפטים כתובים מנקודת מבט של מנהל/ת. השערה לשיחה, לא אבחנה. הנועץ/ת לא רואה אותו.'));
+}
+
 // Inside the popup: "טקסט" (default) | "סיכום לנועץ" | "תשובות הנועץ" | "העתקה"
 function answerViews(q, client, start) {
-  const text = el('div', { class: 'answers' }, q.summary || '—');
+  const text = el('div', {}, el('div', { class: 'answers' }, q.summary || '—'), q.id === 'la' ? ambCard(q.summary) : null);
   const canShow = !!(q.page && q.state && typeof CFL_HR_CLIENT_SITE === 'string');
   const panes = { text: text };
   const tabs = {};

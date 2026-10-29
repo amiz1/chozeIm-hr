@@ -246,3 +246,9 @@ textarea:focus, select:focus { outline: 2px solid var(--olive); outline-offset: 
 .more-q { margin: 10px 0 0; }
 .more-q > summary { cursor: pointer; color: var(--olive); font-weight: 500; font-size: 15px; padding: 6px 0; }
 .more-q .qlist { margin-top: 8px; }
+
+/* גמישות בלמידה: tolerance for ambiguity (יועצים only) */
+.amb-card { margin: 12px 16px 16px; border-right: 4px solid var(--gold, #B08A3E); padding: 12px 16px; }
+.amb-card p { margin: 6px 0; }
+.amb-card ul { margin: 6px 0; padding-inline-start: 20px; }
+.amb-card .amb-warn { color: var(--clay, #9C6B4F); }
