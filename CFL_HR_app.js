@@ -653,8 +653,9 @@ function answerViews(q, client, start) {
   const copied = el('span', { class: 'copied', 'aria-live': 'polite' });
 
   function pick(key) {
-    if (!panes[key]) { // the two page views are built the first time they're opened
-      panes[key] = el('div', { class: 'visual' }, clientFrame(q, client, key === 'answers' ? 'view-answers' : key === 'analysis' ? 'view-analysis' : 'view'));
+    if (!panes[key]) { // the page views are built the first time they're opened
+      panes[key] = el('div', { class: 'visual' }, key === 'matrix' ? matrixFrame(q, client)
+        : clientFrame(q, client, key === 'answers' ? 'view-answers' : key === 'analysis' ? 'view-analysis' : 'view'));
       area.append(panes[key]);
     }
     Object.keys(panes).forEach(k => { panes[k].hidden = k !== key; });
@@ -674,7 +675,8 @@ function answerViews(q, client, start) {
       el('div', { class: 'segs' }, tab('text', 'טקסט'),
         canShow ? tab('results', 'סיכום לנועץ') : null,
         canShow ? tab('answers', 'תשובות הנועץ') : null,
-        canShow && q.id === 'intake' ? tab('analysis', 'ניתוח מלא') : null),
+        canShow && q.id === 'intake' ? tab('analysis', 'ניתוח מלא') : null,
+        q.id === 'matrix' && matrixState(q) ? tab('matrix', 'קריאת התוצאות') : null),
       el('div', {}, copied, copyBtn)),
     area);
   if (start && canShow) pick(start);
@@ -694,6 +696,22 @@ function clientFrame(q, client, mode) {
   };
   window.addEventListener('message', onMsg);
   // stop listening once the popup is closed
+  const watch = setInterval(() => { if (!frame.isConnected) { clearInterval(watch); window.removeEventListener('message', onMsg); } }, 1000);
+  return frame;
+}
+
+// מטריצת ההחלטה: Nurit's "קריאת התוצאות" screen (on this site only, for יועצים), fed with the saved answers
+function matrixState(q) {
+  try { const raw = q.state && q.state.ls && q.state.ls.cim_matrix_client_v1; const x = raw ? JSON.parse(raw) : null; return x && x.s ? x.s : null; }
+  catch (e) { return null; }
+}
+function matrixFrame(q, client) {
+  const frame = el('iframe', { class: 'client-frame', title: 'מטריצת ההחלטה – קריאת התוצאות', src: 'CFL_HR_matrix.html' });
+  const onMsg = (e) => {
+    if (e.source !== frame.contentWindow || e.origin !== location.origin || !e.data || e.data.type !== 'cfl-matrix-ready') return;
+    frame.contentWindow.postMessage({ type: 'cfl-matrix', s: Object.assign({}, matrixState(q), { name: client.name || '' }) }, location.origin);
+  };
+  window.addEventListener('message', onMsg);
   const watch = setInterval(() => { if (!frame.isConnected) { clearInterval(watch); window.removeEventListener('message', onMsg); } }, 1000);
   return frame;
 }

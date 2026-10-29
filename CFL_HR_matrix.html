@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>שלב ב · קריאת התוצאות · חוזה עם החיים</title>
+<style>
+:root{--paper:#F7F5EF;--card:#FFF;--ink:#2B2B28;--mute:#6E6B62;--olive:#6B7A4F;--olive-d:#4E5A3A;
+--olive-l:#8C9A72;--clay:#A9633F;--claybg:#F4E9E1;--gold:#B8933F;--goldbg:#F2EDDC;
+--rule:#DAD5C7;--tint:#F0EEE5;--tint2:#FAF9F4;--slate:#3E4A55;--slatebg:#EAEDF0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Assistant","Heebo","Segoe UI",Arial,sans-serif;font-size:17px;line-height:1.65}
+.wrap{max-width:820px;margin:0 auto;padding:0 20px 100px}
+header{padding:40px 0 22px;border-bottom:2px solid var(--olive)}
+.brand{font-size:14px;color:var(--mute);font-weight:700;margin:0 0 6px}
+h1{font-size:31px;line-height:1.25;margin:0 0 8px;font-weight:800}
+.lede{font-size:18px;color:var(--mute);margin:0;max-width:58ch}
+.steps{display:flex;gap:4px;margin:22px 0 0;flex-wrap:wrap}
+.steps span{flex:1;min-width:28px;text-align:center;font-size:12.5px;font-weight:700;padding:6px 0;background:var(--tint);color:var(--mute)}
+.steps span.done{background:var(--olive-l);color:#fff}
+.steps span.on{background:var(--olive);color:#fff}
+section.block{margin:30px 0 0;background:var(--card);border:1px solid var(--rule);padding:26px 24px}
+.dim{display:inline-block;font-size:12.5px;font-weight:700;padding:3px 10px;margin-bottom:10px;background:var(--tint);color:var(--olive-d)}
+h2{font-size:24px;margin:0 0 8px;font-weight:800}
+h3{font-size:19px;margin:24px 0 8px}
+.sub{font-size:16px;color:var(--mute);margin:0 0 18px;max-width:60ch}
+.note{background:var(--claybg);border-right:4px solid var(--clay);padding:14px 18px;margin:18px 0;font-size:15.5px}
+.note b{color:var(--clay)}
+.bridge{background:var(--goldbg);border-right:4px solid var(--gold);padding:14px 18px;margin:18px 0;font-size:15.5px}
+.calm{background:var(--tint);padding:18px 20px;margin:18px 0}
+input[type=text],textarea,select{width:100%;padding:11px;font-size:16.5px;border:1px solid var(--rule);background:var(--tint2);font-family:inherit;color:var(--ink)}
+textarea{min-height:84px;resize:vertical}
+label.opt{display:flex;gap:10px;align-items:center;margin:0 0 10px}
+label.opt b{min-width:26px;color:var(--olive-d)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--rule);background:var(--tint2);padding:9px 14px;cursor:pointer;font-size:15.5px;font-weight:600;user-select:none}
+.chip.on{background:var(--olive);border-color:var(--olive-d);color:#fff}
+.chip.dis{opacity:.4;cursor:not-allowed}
+.count{font-size:14px;color:var(--clay);font-weight:700;margin:10px 0 0}
+.item{padding:16px 0;border-top:1px solid var(--rule)}
+.item:first-of-type{border-top:none}
+.qt{margin:0 0 10px;font-size:17px;font-weight:700}
+.row{display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap}
+.row .on-name{min-width:130px;font-size:15px;font-weight:600;color:var(--olive-d)}
+.scale{display:flex;gap:4px;flex:1;min-width:280px}
+.scale button{flex:1;padding:8px 0;font-size:14.5px;font-weight:600;border:1px solid var(--rule);background:var(--tint2);color:var(--ink);cursor:pointer;font-family:inherit}
+.scale button.on{background:var(--olive);border-color:var(--olive-d);color:#fff}
+.scale button.qm{background:var(--goldbg);max-width:44px}
+.scale button.qm.on{background:var(--gold);border-color:var(--gold);color:#fff}
+.ends{display:flex;justify-content:space-between;font-size:12.5px;color:var(--mute);margin:4px 0 0}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{padding:7px 12px;font-size:14.5px;font-weight:600;border:1px solid var(--rule);background:var(--tint2);cursor:pointer;font-family:inherit;color:var(--ink)}
+.seg button.on{background:var(--olive);color:#fff;border-color:var(--olive-d)}
+.seg button.on.y{background:var(--olive)}.seg button.on.q{background:var(--gold);border-color:var(--gold)}.seg button.on.n{background:var(--clay);border-color:var(--clay)}
+.actions{margin:30px 0 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+button.main{font-family:inherit;font-size:16.5px;font-weight:700;cursor:pointer;background:var(--ink);color:var(--paper);border:none;padding:15px 32px}
+button.main:hover{background:var(--olive-d)}
+button.main:disabled{opacity:.35;cursor:not-allowed}
+button.ghost{font-family:inherit;background:transparent;color:var(--mute);border:1px solid var(--rule);padding:14px 22px;font-weight:600;font-size:15.5px;cursor:pointer}
+.status{font-size:14.5px;color:var(--clay)}
+.card{border:1px solid var(--rule);padding:18px 20px;margin:16px 0;background:var(--tint2)}
+.card h3{margin:0 0 10px;color:var(--olive-d)}
+.card .lbl{font-size:13.5px;font-weight:800;color:var(--mute);margin:12px 0 2px}
+.card p{margin:0;font-size:16px}
+.flag{background:var(--claybg);border-right:4px solid var(--clay);padding:10px 14px;margin:10px 0 0;font-size:15px}
+.dir{font-size:18px;font-weight:800;padding:10px 0;border-bottom:1px solid var(--rule)}
+.tabs{display:flex;border:2px solid var(--olive);padding:4px;background:var(--card);margin:26px 0 0}
+.tabs button{flex:1;background:transparent;color:var(--olive-d);border:none;padding:13px 10px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit}
+.tabs button.on{background:var(--olive);color:#fff}
+.pane{display:none}.pane.on{display:block}
+.cons{background:var(--slatebg);border-right:4px solid var(--slate);padding:14px 18px;margin:18px 0;font-size:15px}
+.tblwrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14.5px;margin:10px 0}
+th,td{text-align:right;padding:7px 6px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:13px;color:var(--mute)}
+td.n{text-align:center;font-weight:700}
+#rawbox{width:100%;min-height:150px;direction:ltr;text-align:left;word-break:break-all;margin-top:14px;display:none;font-size:14px}
+#rawbox.on{display:block}
+.lock{font-size:15px;color:var(--mute);background:var(--tint);padding:12px 16px;margin:0 0 16px}
+footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--rule);font-size:13px;color:var(--mute)}
+@media(max-width:620px){body{font-size:16px}h1{font-size:25px}section.block{padding:20px 14px}.row .on-name{min-width:100%}.scale{min-width:100%}}
+@media print{body{background:#fff}header .steps,.actions,.tabs,footer,#rawbox{display:none!important}.pane{display:block!important}section.block{border:none;padding:0}}
+
+#rawbox{direction:ltr;text-align:left;word-break:break-all;min-height:150px}
+#paste{direction:ltr;text-align:left;min-height:120px;word-break:break-all;font-size:13px}
+#res{display:none}#res.on{display:block}
+.err{color:var(--clay);font-weight:700}
+.meta{font-size:15px;color:var(--mute)}
+@media print{header,.actions,#feed{display:none!important}#res{display:block!important}.pane{display:block!important}}</style>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;800&display=swap" rel="stylesheet"><style id="cfl-font">body,body *{font-family:"Heebo",Arial,"Arial Hebrew",sans-serif!important}[hidden]{display:none!important}</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <p class="brand">חוזה עם החיים · שלב ב</p>
+  <h1>קריאת התוצאות</h1>
+  <p class="lede">התמונה מתוך מה שהנועץ/ת שלח/ה במטריצת ההחלטה. ליועצים בלבד.</p>
+  
+</header>
+<section class="block" id="feed" hidden>
+  <h2>הדבקת הקוד</h2>
+  <p class="sub">הקוד מתחיל ב־CIM-MATRIX-1 ונמשך לאורך כמה שורות. יש להדביק אותו במלואו.</p>
+  <textarea id="paste" placeholder="CIM-MATRIX-1:..."></textarea>
+  <div class="actions"><button class="main" onclick="load()">פתיחת התמונה</button><span class="status" id="msg"></span></div>
+</section>
+<div id="res">
+  <section class="block">
+    <h2 id="who">התמונה</h2>
+    <p class="meta" id="meta"></p>
+    <div class="tabs"><button id="t1" class="on" onclick="tab(1)">ליועצת</button><button id="t2" onclick="tab(2)">מה הנועץ/ת רואה</button></div>
+    <div class="pane on" id="p2"></div>
+    <div class="pane" id="p1"></div>
+    <div class="actions"><button class="main" onclick="window.print()">הדפסה או שמירה כקובץ</button><button class="ghost" onclick="copyAll()">טקסט להעתקה</button></div>
+    <textarea id="rawbox"></textarea>
+  </section>
+</div>
+<footer>חוזה עם החיים</footer>
+</div>
+<script>
+const L=['א','ב','ג','ד'];
+const VALS=['מימוש עצמי','עניין ותוכן','למידה והתפתחות','אתגר','אוטונומיה','השפעה','הובלה','יצירה','עבודה עם אנשים','שייכות','משמעות','תרומה לחברה','תרומה לעצמי','חופש','הכרה והערכה','מעמד / טייטל','קידום','כסף','ביטחון ויציבות','גמישות','זמן ופנאי','איזון בין עבודה לחיים','גיוון','סביבת עבודה אנושית ומכבדת','אפשרות לפתח אחרים','אפשרות להתפתח בעצמי'];
+const THR=['שכר מינימלי','שעות / היקף משרה','גמישות','מרחק ונסיעות','יציבות','אוטונומיה','סביבת עבודה מכבדת','אפשרות להתפתח','תוכן מקצועי מסוים','התאמה לחיים האישיים'];
+const ROLE=['מה אעשה בפועל','תחומי האחריות','סמכות','אוטונומיה','מדדי הצלחה','למידה','אתגר','שימוש בחוזקות שלי','יכולת להשפיע','אפשרויות קידום','שכר ותנאים','שעות','גמישות'];
+const MGR=['נותן/ת אוטונומיה','ברור/ה בציפיות','נותן/ת משוב','מקשיב/ה','מאפשר/ת לטעות','מאפשר/ת לחלוק עליו/ה','נותן/ת קרדיט','מתייחס/ת לאנשים בכבוד','מפתח/ת אנשים','מסייע/ת לאנשים לצמוח ולהתקדם','יודע/ת להתמודד עם קונפליקט'];
+const SRC=['המנהל/ת אמר/ה לי','עובד/ת בארגון סיפר/ה לי','עובד/ת לשעבר סיפר/ה לי','ראיתי דוגמה קונקרטית','זו בעיקר התרשמות שלי'];
+const CUL=['איך מתייחסים כאן לאנשים בפועל?','האם מפתחים אנשים?','האם מקדמים מבפנים?','מה קורה כשמישהו טועה?','האם אפשר לחלוק על מנהלים?','שיתוף פעולה או תחרות פנימית?','כמה פוליטיקה ארגונית קיימת?','מהו קצב העבודה?','מהן שעות העבודה בפועל?','עד כמה קיימת גמישות?','עד כמה הארגון יציב?','מי מצליח כאן?','למה אנשים טובים עוזבים?','איך מתייחסים לאנשים בתקופות קשות?','איך נפרדים מעובדים?'];
+const GAPS=[['long','אין דדליין קרוב — מרווח של 3–5 ימים',3*24],['days','עליי להחליט בתוך כמה ימים — כ־24 שעות',24],['24h','עליי להחליט בתוך 24 שעות — מרווח קצר',6],['today','עליי להחליט היום — שעה–שעתיים',1.5],['review','גרסת בדיקה — ללא מרווח',0]];
+const ECHO=['איזו אפשרות חזרה אליך היום מעצמה, בלי שניסית לחשוב עליה?','אם אחת האפשרויות הייתה נעלמת עכשיו — על איזו היית הכי מצטער/ת?','אם אף אחד לא היה יודע במה בחרת — האם משהו בבחירה שלך היה משתנה?'];
+const FITS=['מתאים/ה מאוד','מתאים/ה','סימן שאלה','לא מתאים/ה'];
+const OPENQ=['מה מושך אותי?','מה מטריד אותי?','איזה מחיר אצטרך לשלם?','האם קיימת התנגשות עם אחד מתנאי הסף שלי?','מה עדיין איני יודע/ת?','ומה אני מרגיש/ה עכשיו, אחרי שאני רואה את התמונה כולה?'];
+const RESQ=['איך זה נראה ביום שלישי בארבע אחר הצהריים? לא הכותרת של התפקיד, אלא התוכן היומיומי שלו.','מה המסלול ארבעה צעדים קדימה, ולא רק הצעד הבא? לאן זה מוביל בעוד שבע שנים?','מה המחיר האמיתי — בזמן, בכסף, בשנות לימוד, ובמה שלא אעשה בינתיים?','שלוש שיחות: אחד/ת בהתחלה, אחד/ת באמצע, ואחד/ת שכבר יצא/ה. מה הם אמרו?'];
+const TITLES=['פתיחה','מה על הפרק','מה חשוב לי','תנאי סף','טבלת הדירוג','מרווח','חשיבות','תמונת הכיוונים','הצעות ממשיות','העמקה','מה חסר','תמונת ההחלטה','סיכום'];
+
+function blankOffer(){return {opt:'',name:'',role:{},mgr:{},mgrSrc:{},culSel:[],culNote:{},culQ:{},fit:{},open:{}};}
+function blankState(){return {step:0,mode:'',changed:'',name:'',opts:['','','',''],vals:[],valOther:'',thr:[],thrOther:'',thrLimit:{},thrCheck:{},rate:{},locked:false,lockAt:0,gap:'',gapStart:0,echo:{},w:{},nOffers:'',offers:[],research:{},gen:{},five:['','','','','']};}
+function migrate(x){
+  const s=Object.assign(blankState(),x);
+  if(x&&x.offer!==undefined&&!x.offers){
+    s.offers = x.offer==='yes' ? [Object.assign(blankOffer(),{opt:String(x.offerOpt||''),role:x.role||{},mgr:x.mgr||{},mgrSrc:x.mgrSrc||{},culSel:x.culSel||[],culNote:x.culNote||{},culQ:x.culQ||{},fit:x.fit||{},open:x.open||{}})] : [];
+    s.nOffers = x.offer==='yes' ? 1 : (x.offer==='no' ? 0 : '');
+  }
+  if(!Array.isArray(s.offers))s.offers=[];
+  s.offers=s.offers.map(o=>Object.assign(blankOffer(),o));
+  return s;
+}
+const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const O=()=>S.opts.map((t,i)=>({t:String(t||'').trim(),i})).filter(o=>o.t);
+const V=()=>S.vals.map(v=>v==='__other'?(String(S.valOther||'').trim()||'אחר'):v);
+const T=()=>S.thr.map(v=>v==='__other'?(String(S.thrOther||'').trim()||'אחר'):v);
+function oname(i){return L[i]+"' · "+S.opts[i];}
+function offerName(o,k){return o.name?o.name:(o.opt!==''&&S.opts[+o.opt]?oname(+o.opt):'הצעה '+(k+1));}
+
+function analysis(){
+ const v=V(),o=O(),t=T();
+ const res=o.map(x=>{
+  let num=0,den=0,unk=[],give=[],price=[],gap=[],fail=[],thrQ=[];
+  v.forEach(n=>{const r=S.rate[n+'|'+x.i],w=S.w[n]||0;
+   if(r==='?'||r==null){unk.push(n);return;}
+   num+=r*w;den+=10*w;
+   if(w>=6&&r>=8)give.push([n,r*w]);
+   if(w>=6&&r<=4)price.push(n);
+   const best=Math.max(...o.filter(y=>y.i!==x.i).map(y=>{const q=S.rate[n+'|'+y.i];return typeof q==='number'?q:-1}),-1);
+   if(best-r>=4&&w>=5&&price.indexOf(n)<0)gap.push(n);
+  });
+  t.forEach(n=>{const c=S.thrCheck[n+'|'+x.i];if(c==='n')fail.push(n);if(c==='q')thrQ.push(n);});
+  give.sort((a,b)=>b[1]-a[1]);
+  return {i:x.i,t:x.t,pct:den?num/den:0,unk,give:give.slice(0,4).map(g=>g[0]),price,gap,fail,thrQ};});
+ const ranked=res.filter(r=>!r.fail.length).sort((a,b)=>b.pct-a.pct);
+ const n=ranked.length<=2?ranked.length:((ranked[2]&&ranked[0].pct-ranked[2].pct<0.15)?3:2);
+ let read='';
+ if(ranked.length>1){const d=ranked[0].pct-ranked[1].pct;
+  read = d>=0.12 ? 'יש מובילה ברורה. שווה גם לשאול: למה עוד לא הלכת לשם?'
+      : d>=0.05 ? 'יש נטייה, אין הכרעה. שתי הראשונות בתמונה, וההבדל ביניהן יוכרע בהעמקה ולא בטבלה.'
+      : 'התוצאות צמודות, וזה כשלעצמו ממצא. או ששתי האפשרויות מספקות את אותם ערכים בדרכים שונות, או שחסר ערך שלא עלה על הנייר.';}
+ return {res,dirs:ranked.slice(0,n),read};
+}
+const listOf=a=>a.length?a.map(esc).join(' · '):'<span style="color:var(--mute)">—</span>';
+function pictureHTML(){const A=analysis();
+ return A.res.map(r=>`<div class="card"><h3>${esc(oname(r.i))}</h3>
+  ${r.fail.length?`<div class="flag">התנגשות עם תנאי סף: <b>${listOf(r.fail)}</b></div>`:''}
+  <div class="lbl">מה היא נותנת לי במיוחד</div><p>${listOf(r.give)}</p>
+  <div class="lbl">על מה אצטרך לשלם מחיר</div><p>${listOf(r.price)}</p>
+  <div class="lbl">איפה יש פער משמעותי מול אפשרות אחרת</div><p>${listOf(r.gap)}</p>
+  <div class="lbl">מה עדיין איני יודע/ת</div><p>${listOf(r.unk.concat(r.thrQ.map(x=>'תנאי סף: '+x)))}</p></div>`).join('')
+ +`<h3>כיוונים שכדאי לבדוק לעומק</h3>${A.dirs.length?A.dirs.map(d=>`<div class="dir">${esc(oname(d.i))}</div>`).join(''):'<p>אף אפשרות לא עברה את תנאי הסף. זה מידע חשוב כשלעצמו — אולי שווה לחזור לשאלה מה עוד אפשרי.</p>'}
+ ${A.read?`<div class="calm" style="margin-top:14px"><b>איך לקרוא את זה:</b> ${A.read}</div>`:''}`;}
+
+function researchHTML(){
+ const A=analysis();const ids=A.dirs.length?A.dirs.map(d=>d.i):O().map(x=>x.i);
+ const any=ids.some(i=>{const r=S.research[i]||{};return RESQ.some((q,k)=>r['q'+k])||r.found||r.changed;});
+ if(!any)return '';
+ return `<h3>ההעמקה</h3>`+ids.map(i=>{const r=S.research[i]||{};
+  const rows=RESQ.map((q,k)=>r['q'+k]?`<div class="lbl">${esc(q.split('?')[0])}?</div><p>${esc(r['q'+k])}</p>`:'').join('');
+  if(!rows&&!r.found&&!r.changed)return '';
+  return `<div class="card"><h3>${esc(oname(i))}</h3>${rows}
+   ${r.found?`<div class="lbl">מה בררתי</div><p>${esc(r.found)}</p>`:''}
+   ${r.changed?`<div class="lbl">מה זה שינה</div><p>${esc(r.changed)}</p>`:''}</div>`;}).join('');
+}
+function offersHTML(){
+ if(!S.offers.length)return '';
+ return `<h3>${S.offers.length>1?'ההצעות':'ההצעה'}</h3>`+S.offers.map((o,k)=>`<div class="card"><h3>${esc(offerName(o,k))}</h3>
+  ${['התפקיד','המנהל/ת','התרבות'].map(x=>`<p><b>${x}:</b> ${o.fit[x]!=null&&o.fit[x]!==''?FITS[+o.fit[x]]:'—'}</p>`).join('')}
+  ${OPENQ.map((q,j)=>o.open[j]?`<div class="lbl">${esc(q)}</div><p>${esc(o.open[j])}</p>`:'').join('')}</div>`).join('')
+ +(S.offers.length>1?compareHTML():'');
+}
+function compareHTML(){
+ const a=S.offers;
+ return `<h3>השוואה בין ההצעות</h3><div class="tblwrap"><table><tr><th></th>${a.map((o,k)=>`<th>${esc(offerName(o,k))}</th>`).join('')}</tr>
+ ${['התפקיד','המנהל/ת','התרבות'].map(x=>`<tr><td><b>${x}</b></td>${a.map(o=>`<td>${o.fit[x]!=null&&o.fit[x]!==''?FITS[+o.fit[x]]:'—'}</td>`).join('')}</tr>`).join('')}
+ ${[0,1,2].map(j=>`<tr><td><b>${OPENQ[j]}</b></td>${a.map(o=>`<td>${esc(o.open[j]||'')}</td>`).join('')}</tr>`).join('')}
+ <tr><td><b>מה עוד לא ידוע</b></td>${a.map(o=>{const n=ROLE.filter(r=>o.role[r]==='q').length+MGR.filter(m=>o.mgr[m]==='q').length+o.culSel.filter(c=>o.culQ[c]==='q').length;return `<td>${n} נושאים לבירור</td>`;}).join('')}</tr></table></div>`;
+}
+function mineHTML(){
+ let h=pictureHTML()+researchHTML()+offersHTML();
+ if(!S.offers.length&&S.gen&&Object.keys(S.gen).some(k=>S.gen[k]))
+  h+=`<h3>תמונת ההחלטה</h3>`+OPENQ.map((q,j)=>S.gen[j]?`<div class="lbl">${esc(q)}</div><p>${esc(S.gen[j])}</p>`:'').join('');
+ const f=S.five.filter(Boolean);
+ if(f.length)h+=`<h3>מה אני צריך/ה לברר לפני שאני מחליט/ה</h3><ol>${f.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`;
+ h+=`<div class="bridge"><b>אני לא בוחר/ת רק תפקיד. אני בוחר/ת גם מנהל/ת וסביבה שבהם אחיה חלק משמעותי מחיי.</b></div>
+ <div class="note">ההחלטה תהיה בסופו של דבר גם רגשית. ההעמקה נועדה לאזן את התמונה, לא להחליף אותה.</div>`;
+ return h;}
+
+
+let S=blankState();
+const $=id=>document.getElementById(id);
+function consHTML(){const v=V(),o=O(),A=analysis();
+ let h=`<div class="cons"><b>ליועצת.</b> הנועץ/ת רואה תמונה וכיוונים בלבד, בלי מספרים. הטבלאות כאן הן חומר לשיחה ולא פסק דין.</div>`;
+ h+=`<h3>טבלת הדירוג (שלב 4) והחשיבות (שלב 6)</h3><div class="tblwrap"><table><tr><th>ערך</th><th>חשיבות</th>${o.map(x=>`<th>${L[x.i]}</th>`).join('')}</tr>${v.map(n=>`<tr><td>${esc(n)}</td><td class="n">${S.w[n]||''}</td>${o.map(x=>{const r=S.rate[n+'|'+x.i];return `<td class="n">${r==null?'':r}</td>`}).join('')}</tr>`).join('')}
+ <tr><td><b>ציון משוקלל</b></td><td></td>${o.map(x=>{const r=A.res.find(y=>y.i===x.i);return `<td class="n">${Math.round(r.pct*100)}%</td>`}).join('')}</tr></table></div>
+ ${A.read?`<p class="sub">${A.read}</p>`:''}`;
+ h+=`<h3>תנאי סף</h3>${T().length?`<div class="tblwrap"><table><tr><th>תנאי</th><th>הגבול</th>${o.map(x=>`<th>${L[x.i]}</th>`).join('')}</tr>${T().map(t=>`<tr><td>${esc(t)}</td><td>${esc(S.thrLimit[t]||'')}</td>${o.map(x=>`<td class="n">${({y:'✓',n:'✗',q:'?'})[S.thrCheck[t+'|'+x.i]]||''}</td>`).join('')}</tr>`).join('')}</table></div>`:'<p>לא נבחרו.</p>'}`;
+ const gp=GAPS.find(g=>g[0]===S.gap);
+ h+=`<h3>המרווח</h3><p>${gp?esc(gp[1]):'—'}${S.lockAt?` · הדירוג ננעל ב־${new Date(S.lockAt).toLocaleString('he-IL')}`:''}</p>`;
+ h+=ECHO.map((q,k)=>S.echo[k]?`<p><b>${q}</b><br>${esc(S.echo[k])}</p>`:'').join('');
+ const rk=Object.keys(S.research||{}).filter(i=>{const r=S.research[i];return r&&Object.keys(r).some(x=>r[x]);});
+ if(rk.length){h+=`<h3>ההעמקה (אין הצעה ממשית)</h3>`+rk.map(i=>{const r=S.research[i];
+   return `<p><b>${esc(oname(+i))}</b></p><div class="tblwrap"><table>${RESQ.map((q,k)=>r['q'+k]?`<tr><td>${esc(q.split('?')[0])}?</td><td>${esc(r['q'+k])}</td></tr>`:'').join('')}${r.found?`<tr><td>מה בררתי</td><td>${esc(r.found)}</td></tr>`:''}${r.changed?`<tr><td>מה זה שינה</td><td>${esc(r.changed)}</td></tr>`:''}</table></div>`;}).join('');}
+ S.offers.forEach((o2,k)=>{h+=`<h3>בדיקת המציאות — ${esc(offerName(o2,k))}</h3>
+  <div class="tblwrap"><table><tr><th>תפקיד</th><th></th></tr>${ROLE.filter(r=>o2.role[r]).map(r=>`<tr><td>${r}</td><td>${({y:'יודע/ת',q:'צריך לברר',n:'לא חשוב'})[o2.role[r]]}</td></tr>`).join('')}</table></div>
+  <div class="tblwrap"><table><tr><th>מנהל/ת</th><th></th><th>מקור</th></tr>${MGR.filter(m=>o2.mgr[m]).map(m=>`<tr><td>${m}</td><td>${({y:'יודע/ת',q:'צריך לברר',n:'לא חשוב'})[o2.mgr[m]]}</td><td>${esc(o2.mgrSrc[m]||'')}</td></tr>`).join('')}</table></div>
+  <div class="tblwrap"><table><tr><th>תרבות</th><th>מה גיליתי</th></tr>${o2.culSel.map(c=>`<tr><td>${c}${o2.culQ[c]==='q'?' (?)':''}</td><td>${esc(o2.culNote[c]||'')}</td></tr>`).join('')}</table></div>
+  <p>${['התפקיד','המנהל/ת','התרבות'].map(x=>`<b>${x}:</b> ${o2.fit[x]!=null&&o2.fit[x]!==''?FITS[+o2.fit[x]]:'—'}`).join(' · ')}</p>`;});
+ if(S.offers.length>1)h+=compareHTML();
+ const f=S.five.filter(Boolean);
+ if(f.length)h+=`<h3>מה נשאר לברר</h3><ol>${f.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`;
+ return h;}
+function load(){
+  const raw=($('paste').value||'').trim();
+  try{const b=raw.replace(/^CIM-MATRIX-1:/,'').replace(/\s+/g,'');
+    const x=JSON.parse(decodeURIComponent(escape(atob(b))));
+    if(!x.opts||!x.vals)throw 0;
+    S=migrate(x);
+  }catch(e){$('msg').innerHTML='<span class="err">הקוד אינו תקין. כדאי לוודא שהועתק במלואו.</span>';return;}
+  show();
+}
+function show(){
+  $('msg').textContent='';
+  $('who').textContent=S.name?('התמונה של '+S.name):'התמונה';
+  $('meta').textContent='אפשרויות: '+O().map(x=>oname(x.i)).join(' · ');
+  $('p2').innerHTML=consHTML();$('p1').innerHTML=mineHTML();
+  $('res').classList.add('on');
+}
+function tab(n){[1,2].forEach(k=>{$('t'+k).classList.toggle('on',k===n);});
+  $('p2').classList.toggle('on',n===1);$('p1').classList.toggle('on',n===2);}
+function copyAll(){const b=$('rawbox');if(b.classList.contains('on')){b.classList.remove('on');return;}
+  const out=['מטריצת ההחלטה · חוזה עם החיים',S.name||'',''];
+  [$('p2'),$('p1')].forEach(p=>p.querySelectorAll('h3,.lbl,p,li,tr,.dir,.flag').forEach(e=>{if(e.closest('tr')&&e.tagName!=='TR')return;
+   const t=e.tagName==='TR'?[].slice.call(e.children).map(c=>c.textContent.trim()).join('  |  '):e.innerText.trim();
+   if(t)out.push(e.tagName==='H3'?'\n=== '+t+' ===':(e.classList.contains('lbl')?'— '+t+':':t));}));
+  b.value=out.join('\n');b.classList.add('on');b.select();try{navigator.clipboard.writeText(b.value);}catch(e){}}
+
+
+/* חוזה עם החיים: the יועצים site opens this page inside a תיק and hands it the saved answers
+   (only from the יועצים site itself; nothing is kept in this browser) */
+window.addEventListener('message',function(e){
+  if(e.origin!==location.origin||e.source!==window.parent||!e.data||e.data.type!=='cfl-matrix')return;
+  const x=e.data.s;
+  if(!x||!Array.isArray(x.opts)||!Array.isArray(x.vals)){$('who').textContent='אין עדיין תמונה';$('res').classList.add('on');return;}
+  S=migrate(x);show();
+});
+if(window.parent!==window)window.parent.postMessage({type:'cfl-matrix-ready'},location.origin);
+else{$('feed').hidden=false;}
+</script>
+</body>
+</html>
