@@ -172,3 +172,9 @@ dialog.qmodal::backdrop { background: rgba(30, 30, 25, .55); }
 .qblock.closed { border-right-color: var(--rule); }
 .qblock.closed .qtitle { color: var(--mute); }
 @media (max-width: 560px) { .qcontrols { justify-content: flex-start; } }
+
+/* קורות חיים row */
+.cv-row { margin-top: 16px; background: var(--card); border: 1px solid var(--rule); border-right: 4px solid var(--gold); }
+.cv-row.pending { border-right-color: var(--rule); }
+@media (max-width: 560px) { .cv-row .qhead { flex-direction: column; align-items: stretch; } }
+.qmodal .cv-frame { height: 100%; }

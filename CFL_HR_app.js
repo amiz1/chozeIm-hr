@@ -193,7 +193,7 @@ async function showClient(email) {
     el('h1', {}, c.name || c.email),
     el('p', { class: 'sub' }, el('span', { dir: 'ltr' }, c.email), ' · נרשם/ה ' + (c.created || '—') + ' · לשון פניה: ' + genderWord + ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' שאלונים נשלחו'),
     blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
-    null);
+    cvRow(r.cv, c));
   window.scrollTo(0, 0);
 }
 
@@ -236,6 +236,47 @@ function questionnaireRow(q, client) {
       saved, status)));
   paint();
   return row;
+}
+
+// קורות חיים: view (PDF opens in a popup) / download, fetched from the server for this signed-in יועץ
+function cvRow(cv, client) {
+  const note = el('span', { class: 'saved-note', 'aria-live': 'polite' });
+  const head = el('div', { class: 'qhead' }, el('span', { class: 'qtitle' }, 'קורות חיים'));
+  if (!cv) {
+    head.append(el('span', { class: 'qside' }, el('span', { class: 'badge wait' }, 'לא הועלו')));
+    return el('div', { class: 'cv-row pending' }, head);
+  }
+  const isPdf = /\.pdf$/i.test(cv.name);
+  async function fetchFile(btn) {
+    const label = btn.textContent; btn.disabled = true; btn.textContent = 'טוען…'; note.textContent = '';
+    const r = await api('cvFile', { email: client.email });
+    btn.disabled = false; btn.textContent = label;
+    if (!r.ok) { if (!r.handled) note.textContent = r.message; return null; }
+    const bin = atob(r.data); const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { url: URL.createObjectURL(new Blob([bytes], { type: r.mime || 'application/octet-stream' })), name: r.name };
+  }
+  const viewBtn = isPdf ? el('button', { type: 'button', class: 'btn primary small cv-view', onclick: async () => {
+    const f = await fetchFile(viewBtn); if (!f) return;
+    const dlg = el('dialog', { class: 'qmodal', 'aria-label': 'קורות חיים – ' + (client.name || client.email) });
+    dlg.addEventListener('close', () => { setTimeout(() => URL.revokeObjectURL(f.url), 60000); dlg.remove(); });
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+    dlg.append(
+      el('div', { class: 'mhead' },
+        el('div', {}, el('div', { class: 'mtitle' }, 'קורות חיים'), el('div', { class: 'msub' }, (client.name || client.email) + ' · ', el('bdi', {}, cv.name), ' · ' + cv.uploadedAt)),
+        el('div', { class: 'qside' },
+          el('a', { class: 'link-btn small', href: f.url, target: '_blank', rel: 'noopener' }, 'פתיחה בלשונית חדשה'),
+          el('button', { type: 'button', class: 'mclose', 'aria-label': 'סגירה', onclick: () => dlg.close() }, '✕'))),
+      el('div', { class: 'panes' }, el('iframe', { class: 'client-frame cv-frame', title: 'קורות חיים', src: f.url })));
+    document.body.append(dlg); dlg.showModal();
+  } }, 'צפייה') : null;
+  const dlBtn = el('button', { type: 'button', class: 'btn secondary small cv-download', onclick: async () => {
+    const f = await fetchFile(dlBtn); if (!f) return;
+    const a = el('a', { href: f.url, download: f.name }); document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(f.url), 4000);
+  } }, 'הורדה');
+  head.append(el('span', { class: 'qside' }, note, el('span', { class: 'badge sent' }, el('bdi', {}, cv.name), ' · ' + cv.uploadedAt), viewBtn, dlBtn));
+  return el('div', { class: 'cv-row' }, head);
 }
 
 function sentLabel(q) {
