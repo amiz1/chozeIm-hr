@@ -301,7 +301,10 @@ function drawClient(r, refresh) {
   const L = r.lists || { groups: [], kinds: [], noteKinds: [], meets: [] };
   currentClient = c.email;
   const sentCount = r.questionnaires.filter(q => q.sentAt).length;
-  const blocks = r.questionnaires.map(q => questionnaireRow(q, c));
+  // as in Nurit's page: questionnaires for other groups only (e.g. retirement) are tucked away, unless open or sent
+  const fits = q => !(q.groups && q.groups.length) || q.groups.indexOf(ci.group) !== -1 || q.sentAt || q.open;
+  const blocks = r.questionnaires.filter(fits).map(q => questionnaireRow(q, c));
+  const others = r.questionnaires.filter(q => !fits(q));
   const label = (list, v) => { const x = (list || []).filter(i => i[0] === v)[0]; return x ? x[1] : ''; };
   const genderWord = c.gender === 'f' ? 'נועצת' : c.gender === 'm' ? 'נועץ' : '';
   const facts = [genderWord, label(L.groups, ci.group), ci.fac, ci.age ? 'גיל ' + ci.age : '', ci.years ? ci.years + ' שנות ניסיון' : '']
@@ -333,6 +336,8 @@ function drawClient(r, refresh) {
         onclick: () => saveCase(c.email, { group: v }) }, l.split(' · ').slice(0, 2).join(' · '))))) : null,
     el('h2', { class: 'section-title' }, 'השאלונים', el('span', { class: 'muted small' }, ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' נשלחו')),
     blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
+    others.length ? el('details', { class: 'more-q' }, el('summary', {}, 'שאלונים נוספים, לקבוצות אחרות (' + others.length + ')'),
+      el('div', { class: 'qlist' }, others.map(q => questionnaireRow(q, c)))) : null,
     cvRow(r.cv, c),
     el('div', { class: 'tabs', role: 'group', 'aria-label': 'חלקי התיק' }, tabBtns),
     tabBox);

@@ -242,3 +242,7 @@ textarea:focus, select:focus { outline: 2px solid var(--olive); outline-offset: 
   .grid2 { grid-template-columns: 1fr; }
   .tabs { margin-top: 24px; }
 }
+
+.more-q { margin: 10px 0 0; }
+.more-q > summary { cursor: pointer; color: var(--olive); font-weight: 500; font-size: 15px; padding: 6px 0; }
+.more-q .qlist { margin-top: 8px; }
