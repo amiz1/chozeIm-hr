@@ -35,8 +35,43 @@ async function api(action, data) {
     showLogin(out.message);
     return { ok: false, handled: true };
   }
+  if (out.me) { me = out.me; navName.textContent = me.name || me.email; logoutBtn.hidden = false; }
   return out;
 }
+
+// ===================== Remembering answers (makes moving around fast) =====================
+// Lists and נועץ pages are drawn at once from the last visit in this tab, then refreshed in the background.
+const CACHE_PREFIX = 'cfl_hr_c_';
+function cacheGet(key) {
+  try {
+    const o = JSON.parse(sessionStorage.getItem(CACHE_PREFIX + key) || 'null');
+    return o && o.token === getToken() ? o.r : null;
+  } catch (e) { return null; }
+}
+function cachePut(key, r) {
+  try { sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ token: getToken(), r: r })); } catch (e) { }
+}
+function cacheDrop(key) { try { sessionStorage.removeItem(CACHE_PREFIX + key); } catch (e) { } }
+function cacheClear() {
+  try { Object.keys(sessionStorage).filter(k => k.indexOf(CACHE_PREFIX) === 0).forEach(k => sessionStorage.removeItem(k)); } catch (e) { }
+  ahead = {};
+}
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// A נועץ page starts loading when the mouse moves over its row, so the click opens it faster
+let ahead = {}; // email -> { at, promise }
+function loadAhead(email) {
+  const a = ahead[email];
+  if (a && Date.now() - a.at < 30000) return;
+  ahead[email] = { at: Date.now(), promise: api('clientGet', { email: email }) };
+}
+function takeAhead(email) {
+  const a = ahead[email];
+  delete ahead[email];
+  return a && Date.now() - a.at < 30000 ? a.promise : null;
+}
+
+let viewSeq = 0; // each screen gets a number; a late answer for an older screen is ignored
 
 // ===================== Building the page =====================
 function el(tag, props, ...children) {
@@ -70,6 +105,7 @@ window.onGsiLoad = onGsiLoad;
 
 function showLogin(message) {
   me = null;
+  viewSeq++;
   navName.textContent = '';
   logoutBtn.hidden = true;
   const msg = el('div');
@@ -107,6 +143,7 @@ async function onCredential(resp) {
 }
 
 async function logout() {
+  cacheClear();
   await api('hrLogout');
   setToken(null);
   try { google.accounts.id.disableAutoSelect(); } catch (e) { }
@@ -116,14 +153,9 @@ logoutBtn.addEventListener('click', logout);
 
 // ===================== Signed-in screens: menu, clients, one client, staff =====================
 async function ensureMe() {
-  if (!me) {
-    const r = await api('hrMe');
-    if (!r.ok) { if (!r.handled) showLogin(r.message); return false; }
-    me = { name: r.name, email: r.email };
-  }
-  navName.textContent = me.name || me.email;
-  logoutBtn.hidden = false;
-  return true;
+  if (!getToken()) { showLogin(); return false; }
+  if (me) { navName.textContent = me.name || me.email; logoutBtn.hidden = false; }
+  return true; // the server checks the login on every request; its answer says who is signed in
 }
 
 function menu(active) {
@@ -141,9 +173,19 @@ async function showHome() { await showClients(); }
 let clientSearch = '';
 async function showClients() {
   if (!(await ensureMe())) return;
-  loading('clients');
+  const seq = ++viewSeq;
+  const cached = cacheGet('list');
+  if (cached) drawClients(cached); else loading('clients');
   const r = await api('clientList');
-  if (!r.ok) { if (!r.handled) render(menu('clients'), msgBox(r.message)); return; }
+  if (seq !== viewSeq) return;
+  if (!r.ok) { if (!r.handled && !cached) render(menu('clients'), msgBox(r.message)); return; }
+  cachePut('list', r);
+  if (!cached || !same(cached, r)) drawClients(r, !!cached);
+}
+
+function drawClients(r, refresh) {
+  const hadFocus = refresh && document.activeElement && document.activeElement.classList.contains('search');
+  const y = window.scrollY;
 
   const total = r.questionnaires.length;
   const search = el('input', { type: 'search', class: 'search', placeholder: 'חיפוש לפי שם או אימייל', value: clientSearch, 'aria-label': 'חיפוש נועץ' });
@@ -157,6 +199,7 @@ async function showClients() {
     count.textContent = list.length === r.clients.length ? r.clients.length + ' נועצים' : list.length + ' מתוך ' + r.clients.length + ' נועצים';
     if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, r.clients.length ? 'אין תוצאות לחיפוש הזה.' : 'עדיין אין נועצים רשומים.')); return; }
     const rows = list.map(c => el('tr', { class: 'clickable', tabindex: '0',
+      onmouseenter: () => loadAhead(c.email), onfocus: () => loadAhead(c.email),
       onclick: () => showClient(c.email),
       onkeydown: (e) => { if (e.key === 'Enter') showClient(c.email); } },
       el('td', {}, el('b', {}, c.name || '—')),
@@ -175,14 +218,25 @@ async function showClients() {
     el('h1', {}, 'נועצים'),
     el('p', { class: 'sub' }, 'בחרו נועץ/ת כדי לראות את התשובות לשאלונים.'),
     el('div', { class: 'card' }, search, count, tableBox));
+  if (refresh) { window.scrollTo(0, y); if (hadFocus) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); } }
 }
 
 // ---------- one client ----------
 async function showClient(email) {
   if (!(await ensureMe())) return;
-  loading('clients');
-  const r = await api('clientGet', { email: email });
-  if (!r.ok) { if (!r.handled) render(menu('clients'), backLink(), msgBox(r.message)); return; }
+  const seq = ++viewSeq;
+  const key = 'client_' + email;
+  const cached = cacheGet(key);
+  if (cached) drawClient(cached); else { loading('clients'); window.scrollTo(0, 0); }
+  const r = await (takeAhead(email) || api('clientGet', { email: email }));
+  if (seq !== viewSeq) return;
+  if (!r.ok) { if (!r.handled && !cached) render(menu('clients'), backLink(), msgBox(r.message)); return; }
+  cachePut(key, r);
+  if (!cached || !same(cached, r)) drawClient(r, !!cached);
+}
+
+function drawClient(r, refresh) {
+  const y = window.scrollY;
   const c = r.client;
   const sentCount = r.questionnaires.filter(q => q.sentAt).length;
 
@@ -194,7 +248,7 @@ async function showClient(email) {
     el('p', { class: 'sub' }, el('span', { dir: 'ltr' }, c.email), ' · נרשם/ה ' + (c.created || '—') + ' · לשון פניה: ' + genderWord + ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' שאלונים נשלחו'),
     blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
     cvRow(r.cv, c));
-  window.scrollTo(0, 0);
+  window.scrollTo(0, refresh ? y : 0);
 }
 
 // One questionnaire on the נועץ page: title, "פתוח לנועץ" switch, status, and the answers button when sent
@@ -224,6 +278,7 @@ function questionnaireRow(q, client) {
     const r = await api('setAccess', { email: client.email, id: q.id, open: want });
     input.disabled = false;
     if (!r.ok) { input.checked = !want; saved.textContent = r.handled ? '' : (r.message || 'השמירה לא הצליחה'); return; }
+    cacheDrop('client_' + client.email);
     q.open = want; paint();
     saved.textContent = want ? 'נפתח לנועץ' : 'נסגר לנועץ';
     setTimeout(() => { saved.textContent = ''; }, 2200);
@@ -246,7 +301,7 @@ function cvRow(cv, client) {
     head.append(el('span', { class: 'qside' }, el('span', { class: 'badge wait' }, 'לא הועלו')));
     return el('div', { class: 'cv-row pending' }, head);
   }
-  const isPdf = /\.pdf$/i.test(cv.name);
+
   async function fetchFile(btn) {
     const label = btn.textContent; btn.disabled = true; btn.textContent = 'טוען…'; note.textContent = '';
     const r = await api('cvFile', { email: client.email });
@@ -256,20 +311,8 @@ function cvRow(cv, client) {
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return { url: URL.createObjectURL(new Blob([bytes], { type: r.mime || 'application/octet-stream' })), name: r.name };
   }
-  const viewBtn = isPdf ? el('button', { type: 'button', class: 'btn primary small cv-view', onclick: async () => {
-    const f = await fetchFile(viewBtn); if (!f) return;
-    const dlg = el('dialog', { class: 'qmodal', 'aria-label': 'קורות חיים – ' + (client.name || client.email) });
-    dlg.addEventListener('close', () => { setTimeout(() => URL.revokeObjectURL(f.url), 60000); dlg.remove(); });
-    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
-    dlg.append(
-      el('div', { class: 'mhead' },
-        el('div', {}, el('div', { class: 'mtitle' }, 'קורות חיים'), el('div', { class: 'msub' }, (client.name || client.email) + ' · ', el('bdi', {}, cv.name), ' · ' + cv.uploadedAt)),
-        el('div', { class: 'qside' },
-          el('a', { class: 'link-btn small', href: f.url, target: '_blank', rel: 'noopener' }, 'פתיחה בלשונית חדשה'),
-          el('button', { type: 'button', class: 'mclose', 'aria-label': 'סגירה', onclick: () => dlg.close() }, '✕'))),
-      el('div', { class: 'panes' }, el('iframe', { class: 'client-frame cv-frame', title: 'קורות חיים', src: f.url })));
-    document.body.append(dlg); dlg.showModal();
-  } }, 'צפייה') : null;
+  // צפייה opens the file in Google Drive (the folder is shared only with the יועצים list)
+  const viewBtn = cv.url ? el('a', { class: 'btn primary small cv-view', href: cv.url, target: '_blank', rel: 'noopener' }, 'צפייה') : null;
   const dlBtn = el('button', { type: 'button', class: 'btn secondary small cv-download', onclick: async () => {
     const f = await fetchFile(dlBtn); if (!f) return;
     const a = el('a', { href: f.url, download: f.name }); document.body.append(a); a.click(); a.remove();
@@ -365,8 +408,10 @@ function backLink() {
 // ---------- staff ----------
 async function showStaff() {
   if (!(await ensureMe())) return;
+  const seq = ++viewSeq;
   loading('staff');
   const list = await api('staffList');
+  if (seq !== viewSeq) return;
   if (!list.ok) { if (!list.handled) render(menu('staff'), msgBox(list.message)); return; }
 
   const tableBox = el('div');
@@ -386,7 +431,8 @@ async function showStaff() {
         const r = await api('staffAdd', { email: email.value, name: name.value });
         if (!r.ok) { if (!r.handled) addMsg.append(msgBox(r.message)); return; }
         drawStaff(tableBox, r.staff);
-        addMsg.append(msgBox(name.value.trim() + ' נוסף/ה ליועצים. מעכשיו אפשר להיכנס עם חשבון ה-Google של ' + email.value.trim().toLowerCase() + '.', 'success'));
+        addMsg.append(msgBox(name.value.trim() + ' נוסף/ה ליועצים. מעכשיו אפשר להיכנס עם חשבון ה-Google של ' + email.value.trim().toLowerCase() +
+          (r.cvShared === false ? '. שימו לב: שיתוף תיקיית קורות החיים ב-Drive לא הצליח כרגע, ויתבצע שוב בבדיקה השעתית.' : ', ולצפות בקורות החיים ב-Drive.'), 'success'));
         email.value = ''; name.value = '';
         form.hidden = true;
         openBtn.hidden = false;
