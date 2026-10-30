@@ -189,7 +189,7 @@ async function showHome() {
     if (!(await ensureMe())) { prepLink = req; return; }
     loading('clients');
     const r = await api('prepFind', { req: req });
-    if (r.ok) { meetSel[r.email] = r.n; caseTab = 'meet'; cacheDrop('client_' + r.email); return showClient(r.email); }
+    if (r.ok) { meetSel[r.email] = r.n; cacheDrop('client_' + r.email); return showClient(r.email); }
     if (r.handled) { prepLink = req; return; }
     await showClients();
     app.prepend(msgBox(r.message));
@@ -229,7 +229,7 @@ function newCaseForm(r) {
   const email = el('input', { type: 'email', id: 'nc_email', dir: 'ltr', autocomplete: 'off' });
   const phone = el('input', { type: 'tel', id: 'nc_phone', dir: 'ltr', autocomplete: 'off' });
   const g = radios('nc_gender', [['f', 'נועצת'], ['m', 'נועץ']], '');
-  const group = select('nc_group', [['', 'לא נבחרה']].concat(r.groups || []), '');
+  const group = select('nc_group', [['', 'לא נבחרה']].concat(openGroups(r.groups)), '');
   const qs = (r.qlist || []).map((q, i) => el('label', { class: 'check' },
     el('input', { type: 'checkbox', value: q.id, checked: i === 0 }), ' ' + q.title));
   const invite = el('input', { type: 'checkbox', id: 'nc_invite', checked: true });
@@ -282,7 +282,6 @@ function fmtWhen(s) {
 function drawClients(r, refresh) {
   const hadFocus = refresh && document.activeElement && document.activeElement.classList.contains('search');
   const y = window.scrollY;
-  const groupShort = v => { const g = (r.groups || []).filter(x => x[0] === v)[0]; return g ? g[1].split(' · ')[0] : ''; };
   const search = el('input', { type: 'search', class: 'search', placeholder: 'חיפוש לפי שם, אימייל, תגית או יועץ', value: clientSearch, 'aria-label': 'חיפוש נועץ' });
   const mine = el('input', { type: 'checkbox', id: 'onlyMine', checked: onlyMine });
   const nArch = r.clients.filter(c => c.archived).length;
@@ -294,12 +293,8 @@ function drawClients(r, refresh) {
   const count = el('p', { class: 'muted small' });
 
   // "הצעד הבא (2)": the group's name in two words, its number and letter in parentheses
-  const groupLabel = v => {
-    const g = (r.groups || []).filter(x => x[0] === v)[0]; if (!g) return '';
-    const parts = g[1].split(' · '), first = parts[0].split(' ');
-    const name = parts.length > 2 ? parts[1] : first.slice(1).join(' ') || parts[1] || '';
-    return name.split(' ').slice(0, 2).join(' ') + ' (' + first[0] + ')';
-  };
+  // "לקראת פרישה (4א)": the short name, the code in parentheses
+  const groupLabel = v => { const g = (r.groups || []).filter(x => x[0] === v)[0]; return g ? (g[2] || g[1]) + ' (' + groupCode(g[0]) + ')' : ''; };
   // three dots, always: filled · opened and waiting · not opened yet
   const dots = c => {
     const qs = c.qs || [], done = qs.filter(q => q.done), wait = qs.filter(q => !q.done), rest = c.notYet || [];
@@ -308,8 +303,8 @@ function drawClients(r, refresh) {
     return el('span', { class: 'qdots', 'aria-label': done.length + ' מולאו, ' + wait.length + ' פתוחים וטרם מולאו, ' + rest.length + ' לא נפתחו' },
       one('done', done.map(q => q.title), 'מולאו'), one('wait', wait.map(q => q.title), 'פתוחים, טרם מולאו'), one('rest', rest, 'לא נפתחו'));
   };
-  const nextText = c => c.next && c.next.date ? fmtDay(c.next.date) + (c.next.time ? ' בשעה ' + c.next.time : '')
-    : c.meetingsOver ? 'הפגישות הסתיימו' : 'טרם נקבע';
+  const nextText = c => !c.next ? 'טרם נקבע' : c.next.kind === 'proc' ? 'עיבוד ללא פגישה'
+    : c.next.date ? fmtDay(c.next.date) + (c.next.time ? ' בשעה ' + c.next.time : '') : 'פגישה · טרם נקבע';
 
   function draw() {
     const q = search.value.trim().toLowerCase();
@@ -332,11 +327,11 @@ function drawClients(r, refresh) {
         el('td', { class: 'staff-cell' }, c.staffName ? el('span', { class: c.staff === r.myEmail ? 'mine' : '' }, c.staff === r.myEmail ? 'אני' : c.staffName) : el('span', { class: 'muted' }, 'לא שויך')),
         el('td', { class: 'seen' }, c.registered === false ? el('span', { class: 'muted' }, 'טרם נכנס/ה') : c.lastSeen ? fmtWhen(c.lastSeen) : el('span', { class: 'muted' }, '—')),
         el('td', { class: 'qs-cell' }, dots(c)),
-        el('td', { class: 'next-cell' + (c.next && c.next.date ? '' : ' muted'), title: c.next ? 'פגישה ' + c.next.n : '' }, nextText(c))));
+        el('td', { class: 'next-cell' + (c.next && c.next.date ? '' : ' muted'), title: c.next ? (c.next.kind === 'proc' ? 'עיבוד ללא פגישה ' : 'פגישה ') + c.next.n : '' }, nextText(c))));
     tableBox.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'staff clients' },
       el('thead', {}, el('tr', {}, el('th', {}, 'שם מלא (גיל)'), el('th', {}, 'קבוצה'), el('th', {}, 'יועץ/ת'), el('th', {}, 'כניסה אחרונה'),
         el('th', { class: 'qs-head' }, 'שאלונים'),
-        el('th', {}, 'הפגישה הבאה'))),
+        el('th', {}, 'האינטראקציה הבאה'))),
       el('tbody', {}, rows))),
       el('p', { class: 'qlegend' }, 'שאלונים: ', el('span', { class: 'qd done' }, el('span', { class: 'dot' }), 'מולאו'),
         el('span', { class: 'qd wait' }, el('span', { class: 'dot' }), 'פתוחים, טרם מולאו'), el('span', { class: 'qd rest' }, el('span', { class: 'dot' }), 'לא נפתחו')));
@@ -368,7 +363,6 @@ async function showClient(email) {
 }
 
 let currentClient = null; // the email of the תיק on screen (refreshed when you come back to this tab)
-let caseTab = 'meet';
 let qsOpen = false; // "השאלונים" open or closed (kept while moving between תיקים)
 
 function drawClient(r, refresh) {
@@ -390,16 +384,8 @@ function drawClient(r, refresh) {
   const intake = r.questionnaires.filter(q => q.id === 'intake' && q.state)[0];
   const suggested = !ci.group && intake ? groupFromIntake(intake.state) : '';
 
-  const tabs = { meet: 'הפגישות', claude: 'Claude', notes: 'הרשמים שלי' };
-  const tabBox = el('div', { class: 'case-tab' });
-  const tabBtns = Object.keys(tabs).map(k => el('button', { type: 'button', class: 'tab' + (k === caseTab ? ' on' : ''), 'data-tab': k,
-    'aria-pressed': k === caseTab ? 'true' : 'false', onclick: () => { caseTab = k; drawTab(); } }, tabs[k] +
-    (k === 'notes' && r.entries && r.entries.notes.length ? ' (' + r.entries.notes.length + ')' : '')));
-  function drawTab() {
-    tabBtns.forEach(b => { const on = b.dataset.tab === caseTab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
-    tabBox.replaceChildren(caseTab === 'notes' ? notesSection(r) : caseTab === 'meet' ? meetingsSection(r) : claudeSection(r));
-  }
-  drawTab();
+  // the bottom of the תיק: the timeline of interactions (פגישות and עיבודים), from the opening on
+  const tabBox = el('div', { class: 'case-tab timeline-box' }, timelineSection(r));
 
   // text being written survives a refresh of the page (the note, and the meeting fields)
   const drafts = {};
@@ -418,7 +404,7 @@ function drawClient(r, refresh) {
       ci.privacyAt ? ' · אישר/ה את מדיניות הפרטיות ' + ci.privacyAt : (c.registered === false ? '' : ' · טרם אישר/ה את מדיניות הפרטיות')),
     caseDetails(r, L),
     !ci.group ? el('div', { class: 'card group-pick' }, el('b', {}, 'קבוצה: '), el('span', { class: 'muted' }, suggested ? 'הצעה לפי שאלון הכניסה: ' : 'עוד לא נבחרה. '),
-      el('div', { class: 'row' }, L.groups.map(([v, l]) => el('button', { type: 'button', class: 'btn small ' + (v === suggested ? 'primary' : 'secondary'),
+      el('div', { class: 'row' }, openGroups(L.groups).map(([v, l]) => el('button', { type: 'button', class: 'btn small ' + (v === suggested ? 'primary' : 'secondary'),
         onclick: () => saveCase(c.email, { group: v }) }, l.split(' · ').slice(0, 2).join(' · '))))) : null,
     qsSection(el('summary', {}, 'השאלונים', el('span', { class: 'muted small' }, ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' נשלחו' +
         (r.questionnaires.filter(q => q.open && !q.sentAt).length ? ' · ' + r.questionnaires.filter(q => q.open && !q.sentAt).length + ' פתוחים וממתינים' : ''))),
@@ -427,7 +413,7 @@ function drawClient(r, refresh) {
       others.length ? el('details', { class: 'more-q' }, el('summary', {}, 'שאלונים נוספים, לקבוצות אחרות (' + others.length + ')'),
         el('div', { class: 'qlist' }, others.map(q => questionnaireRow(q, c)))) : null,
       cvRow(r.cv, c)),
-    el('div', { class: 'tabs', role: 'group', 'aria-label': 'חלקי התיק' }, tabBtns),
+    el('h2', { class: 'section-title tl-title' }, 'אינטראקציות'),
     tabBox,
     manageCase(r));
   Object.keys(drafts).forEach(id => { const x = document.getElementById(id); if (x) x.value = drafts[id]; });
@@ -440,47 +426,74 @@ function qsSection(summary, ...body) {
   return d;
 }
 
+// the groups a תיק can be put in (the clinic, 2, is closed for now; a תיק already in it keeps showing it)
+const openGroups = (list, keep) => (list || []).filter(g => g[0] !== '2' || g[0] === keep).map(g => [g[0], g[1]]);
+const groupCode = c => String(c).replace('a', 'א').replace('b', 'ב');
+
 // Group 1א… from the first answer of שאלון הכניסה (as the "תיקי נועצים" page did); the יועץ confirms it
 function groupFromIntake(state) {
   const q1 = state && state.a ? state.a.q1 : null;
   if (q1 === null || q1 === undefined) return '';
-  return q1 === 4 ? '3a' : q1 === 5 ? '3b' : q1 === 0 ? '' : '2';
+  return q1 === 4 ? '4a' : q1 === 5 ? '4b' : q1 === 0 ? '' : '3';
 }
 
 const fmtDay = d => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? (+m[3]) + '.' + (+m[2]) + '.' + m[1] : String(d || ''); };
 let currentReminders = {};
 
-// ---------- the meetings: what was filled before each, what was said and decided, what to fill next ----------
-const ORD = ['ראשונה', 'שנייה', 'שלישית', 'רביעית', 'חמישית', 'שישית', 'שביעית', 'שמינית', 'תשיעית', 'עשירית', 'אחת־עשרה', 'שתים־עשרה'];
-const MEET_MAX = 12;
-const MEET_TEXT = [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות והמשך', 'מה סוכם, ומה הכיוון להמשך'],
-  ['task', 'משימה לנועץ/ת', 'מה הנועץ/ת עושה עד הפגישה הבאה']];
-let meetSel = {}, meetFlash = null; // the meeting on screen per תיק; the message after a save
+// ---------- interactions: a timeline of פגישות and עיבודים ללא פגישה, from the opening on ----------
+// The opening (שאלון הכניסה and the CV) comes first; Claude's full analysis for the first פגישה is built on it.
+// Each interaction: what came in for it, what Claude wrote (a prep for a פגישה, insights for an עיבוד), what was
+// said and decided, and what comes next: questionnaires to open, tasks for the נועץ, and the kind of the next one.
+const KIND = { meet: 'פגישה', proc: 'עיבוד ללא פגישה' };
+let meetSel = {}, meetFlash = null; // the interaction open on screen per תיק; the message after a save
 
-function meetingsOf(r) {
-  const ms = ((r.caseInfo || {}).meetings || []).map(m => Object.assign({ done: false, date: '', time: '', given: [] }, m));
-  while (ms.length < 4) ms.push({ done: false, date: '', time: '', given: [] });
-  return ms;
-}
-
-function meetingsSection(r) {
-  const c = r.client, ms = meetingsOf(r);
+function timelineSection(r) {
+  const c = r.client, ci = r.caseInfo || {}, E = r.entries || {};
+  const ms = (ci.meetings || []).map(m => Object.assign({ kind: 'meet', done: false, date: '', time: '', given: [], tasks: [] }, m));
   const nextI = ms.findIndex(m => !m.done);
   let n = meetSel[c.email];
-  if (!n || n > ms.length) n = nextI === -1 ? ms.length : nextI + 1;
-  const strip = el('div', { class: 'mtg-strip', role: 'group', 'aria-label': 'הפגישות' },
-    ms.map((m, i) => el('button', { type: 'button', 'data-n': String(i + 1),
-      class: 'mtg-pill' + (m.done ? ' done' : '') + (i === nextI ? ' next' : '') + (i + 1 === n ? ' on' : ''),
-      'aria-pressed': i + 1 === n ? 'true' : 'false', title: m.date ? fmtDay(m.date) + (m.time ? ' · ' + m.time : '') : '',
-      onclick: () => { meetSel[c.email] = i + 1; meetFlash = null; drawClient(r, true); } },
-      el('span', { class: 'mtg-n' }, m.done ? '✓' : String(i + 1)),
-      el('span', { class: 'mtg-pl' }, i === nextI ? 'הבאה' + (m.date ? ' · ' + fmtDay(m.date) : '') : m.done ? (m.date ? fmtDay(m.date) : 'התקיימה') : (m.date ? fmtDay(m.date) : '')))),
-    ms.length < MEET_MAX ? el('button', { type: 'button', class: 'link-btn small mtg-add', onclick: async (e) => {
-      const res = await withBusy(e.currentTarget, () => api('meetSave', { email: c.email, n: ms.length + 1, given: [] }));
-      if (!res.ok) return;
+  if (n === undefined || n > ms.length) n = nextI === -1 ? ms.length : nextI + 1;
+  const items = [openingItem(r, ms)];
+  ms.forEach((m, i) => {
+    const k = i + 1, T = (E.meetTexts || {})[k] || {};
+    const line = ((T.summary || T.decisions || T.insight || {}).text || '').split('\n').filter(Boolean)[0] || '';
+    const head = el('button', { type: 'button', class: 'tl-head', 'data-n': String(k), 'aria-expanded': k === n ? 'true' : 'false',
+      onclick: () => { meetSel[c.email] = k === n ? 0 : k; meetFlash = null; drawClient(r, true); } },
+      el('span', { class: 'tl-n' }, m.done ? '✓' : String(k)),
+      el('span', { class: 'tl-kind' }, KIND[m.kind] + ' ' + k),
+      el('span', { class: 'tl-when muted small' }, m.date ? fmtDay(m.date) + (m.time ? ' ' + m.time : '') : m.done ? '' : i === nextI ? 'הבאה · טרם נקבע' : ''),
+      i === nextI ? el('span', { class: 'badge wait' }, 'הבאה') : null,
+      !m.done || k === n ? null : el('span', { class: 'tl-line muted small' }, line.slice(0, 90)));
+    items.push(el('div', { class: 'tl-item ' + m.kind + (m.done ? ' done' : '') + (i === nextI ? ' next' : '') + (k === n ? ' open' : '') },
+      head, k === n ? interactionCard(r, ms, k) : null));
+  });
+  if (nextI === -1) items.push(el('div', { class: 'tl-item tl-add' }, el('span', { class: 'muted small' }, 'מה הלאה? '),
+    ['meet', 'proc'].map(kind => el('button', { type: 'button', class: 'btn secondary small tl-add-' + kind, onclick: async (e) => {
+      const res = await withBusy(e.currentTarget, () => api('meetSave', { email: c.email, n: ms.length + 1, kind: kind, given: [] }));
+      if (!res.ok) { if (!res.handled) e.currentTarget.after(msgBox(res.message)); return; }
       meetSel[c.email] = ms.length + 1; afterMeetSave(r, res);
-    } }, '+ פגישה נוספת') : null);
-  return el('div', { class: 'meet-sec' }, strip, meetingCard(r, ms, n));
+    } }, '+ ' + KIND[kind]))));
+  const notes = E.notes || [];
+  if (notes.length) items.push(el('details', { class: 'tl-old' }, el('summary', {}, 'רשמים מלפני האינטראקציות (' + notes.length + ')'),
+    notes.map(x => el('div', { class: 'note' }, el('div', { class: 'note-head' }, el('b', {}, x.sub || 'הערה'), el('span', { class: 'muted small' }, ' ' + x.at + ' · ' + x.byName)),
+      el('div', { class: 'note-text' }, x.text)))));
+  return el('div', { class: 'timeline' }, items);
+}
+
+// the opening: שאלון הכניסה and the CV (what the first prep is built on)
+function openingItem(r, ms) {
+  const intake = r.questionnaires.filter(q => q.id === 'intake')[0];
+  const first = ms[0] && !ms[0].done && ms[0].kind === 'meet';
+  return el('div', { class: 'tl-item opening' + (intake && intake.sentAt ? ' done' : '') },
+    el('div', { class: 'tl-head static' }, el('span', { class: 'tl-n' }, '0'), el('span', { class: 'tl-kind' }, 'פתיחה'),
+      el('span', { class: 'tl-when muted small' }, 'שאלון הכניסה וקורות החיים')),
+    el('ul', { class: 'mtg-qs opening-list' },
+      intake ? el('li', { class: intake.sentAt ? 'done' : '' }, el('span', { class: 'dot' }), el('span', { class: 'qt' }, intake.title),
+        intake.sentAt ? el('span', { class: 'muted small' }, ' · ' + fmtWhen(intake.sentAt)) : el('span', { class: 'badge wait' }, 'טרם מילא/ה'),
+        intake.sentAt ? el('button', { type: 'button', class: 'link-btn small', onclick: () => openAnswers(intake, r.client) }, 'צפייה בתשובות') : null) : null,
+      el('li', { class: r.cv ? 'done' : '' }, el('span', { class: 'dot' }), el('span', { class: 'qt' }, 'קורות חיים'),
+        r.cv ? el('span', { class: 'muted small' }, ' · ' + r.cv.name + ' · ' + fmtWhen(r.cv.uploadedAt)) : el('span', { class: 'badge wait' }, 'לא הועלו'))),
+    first ? el('p', { class: 'hint small' }, 'על בסיס אלה Claude כותב את הניתוח המלא לקראת הפגישה הראשונה (בכרטיס של פגישה 1).') : null);
 }
 
 function afterMeetSave(r, res) {
@@ -490,123 +503,173 @@ function afterMeetSave(r, res) {
   drawClient(r, true);
 }
 
-function meetingCard(r, ms, n) {
-  const c = r.client, m = ms[n - 1], E = r.entries || {}, T = (E.meetTexts || {})[n] || {};
+// what came in for interaction n: the questionnaires opened at the one before (for the first: all open or filled),
+// and the tasks given there, with the files uploaded in answer
+function inputsPart(r, ms, n) {
+  const c = r.client, E = r.entries || {}, A = E.taskAnswers || {};
+  const byId = {}; r.questionnaires.forEach(q => { byId[q.id] = q; });
+  const prev = n > 1 ? ms[n - 2] : null;
+  const qs = prev ? prev.given.map(id => byId[id]).filter(Boolean) : r.questionnaires.filter(q => q.open || q.sentAt);
+  const tasks = prev ? prev.tasks : [];
+  const li = qs.map(q => el('li', { class: q.sentAt ? 'done' : '' },
+    el('span', { class: 'dot' }), el('span', { class: 'qt' }, q.title),
+    q.sentAt ? el('span', { class: 'muted small' }, ' · ' + fmtWhen(q.sentAt)) : el('span', { class: 'badge wait' }, q.open ? 'טרם מילא/ה' : 'סגור · טרם מילא/ה'),
+    q.sentAt ? el('button', { type: 'button', class: 'link-btn small', onclick: () => openAnswers(q, c) }, 'צפייה בתשובות') : null))
+    .concat(tasks.map(k => taskLine(k, A)));
+  return el('div', { class: 'mtg-part' }, el('h4', {}, prev ? 'מה התקבל מאז ' + KIND[prev.kind] + ' ' + (n - 1) : 'מה מולא לקראת הפגישה'),
+    li.length ? el('ul', { class: 'mtg-qs' }, li) : el('p', { class: 'muted small' }, prev ? 'לא נפתחו שאלונים ולא ניתנו משימות.' : 'עוד לא נפתחו שאלונים.'));
+}
+function taskLine(k, A) {
+  const a = A[k.id];
+  return el('li', { class: 'task-line' + (k.box ? (a ? ' done' : '') : ' plain') },
+    el('span', { class: 'dot' }), el('span', { class: 'qt' }, 'משימה: ' + k.text),
+    k.box ? (a ? el('span', { class: 'small' }, ' · ', a.url ? el('a', { href: a.url, target: '_blank', rel: 'noopener' }, a.name) : a.name, el('span', { class: 'muted' }, ' · ' + fmtWhen(a.at)))
+      : el('span', { class: 'badge wait' }, 'טרם הועלתה תשובה')) : null);
+}
+
+function interactionCard(r, ms, n) {
+  const c = r.client, m = ms[n - 1], E = r.entries || {}, T = (E.meetTexts || {})[n] || {}, A = E.taskAnswers || {};
+  const meet = m.kind === 'meet', first = !ms.slice(0, n - 1).some(x => x.done);
   const byId = {}; r.questionnaires.forEach(q => { byId[q.id] = q; });
   const msg = el('div', { class: 'mtg-msg', 'aria-live': 'polite' });
   const done = el('input', { type: 'checkbox', id: 'm_done', checked: m.done });
   const date = el('input', { type: 'date', id: 'm_date', value: m.date || '', 'aria-label': 'תאריך' });
   const time = el('input', { type: 'time', id: 'm_time', value: m.time || '', 'aria-label': 'שעה' });
+  const kind = m.done ? null : select('m_kind', [['meet', KIND.meet], ['proc', KIND.proc]], m.kind);
+  if (kind) kind.addEventListener('change', async () => {
+    const res = await api('meetSave', { email: c.email, n: n, kind: kind.value });
+    if (res.ok) afterMeetSave(r, res);
+  });
 
-  // what was filled for this meeting: what was decided at the one before (for the first: all that was open)
-  const prev = n > 1 ? ms[n - 2] : null;
-  const forThis = prev ? prev.given.map(id => byId[id]).filter(Boolean) : r.questionnaires.filter(q => q.open || q.sentAt);
-  const filled = el('div', { class: 'mtg-part' }, el('h4', {}, 'מה מולא לקראת הפגישה'),
-    forThis.length ? el('ul', { class: 'mtg-qs' }, forThis.map(q => el('li', { class: q.sentAt ? 'done' : '' },
-      el('span', { class: 'dot' }), el('span', { class: 'qt' }, q.title),
-      q.sentAt ? el('span', { class: 'muted small' }, ' · ' + fmtWhen(q.sentAt)) : el('span', { class: 'badge wait' }, q.open ? 'טרם מילא/ה' : 'סגור · טרם מילא/ה'),
-      q.sentAt ? el('button', { type: 'button', class: 'link-btn small', onclick: () => openAnswers(q, c) }, 'צפייה בתשובות') : null)))
-      : el('p', { class: 'muted small' }, prev ? 'בפגישה ה' + ORD[n - 2] + ' לא נבחרו שאלונים.' : 'עוד לא נפתחו שאלונים.'));
+  // what Claude writes: the prep of a פגישה (the first: the full analysis), or the insights of an עיבוד (optional)
+  const field = meet ? 'prep' : 'insight';
+  const cT = T[field] && T[field].text ? T[field] : null;
+  const cMsg = el('div', { class: 'prep-msg', 'aria-live': 'polite' });
+  const cName = meet ? (first ? 'ניתוח מלא לקראת הפגישה הראשונה' : 'הכנה לפגישה') : 'תובנות Claude (לא חובה)';
+  const cBtn = el('button', { type: 'button', class: cT ? 'link-btn small prep-claude' : 'btn secondary prep-claude', onclick: () => openPrep(r, n, cBtn, cMsg, field) },
+    cT ? 'עדכון ב-Claude' : meet ? (first ? 'ניתוח מלא עם Claude' : 'הכנה לפגישה עם Claude') : 'עיבוד עם Claude');
+  const claudePart = el('div', { class: 'mtg-part prep' }, el('h4', {}, cName,
+      cT ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null),
+    cT ? el('textarea', { id: 'm_' + field, 'data-keep': '1', rows: '9' }, cT.text) : null,
+    cT ? null : el('p', { class: 'hint' }, meet ? (first ? 'Claude קורא את שאלון הכניסה ואת קורות החיים, וכותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא. הטקסט נשמר כאן.'
+      : 'Claude כותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא: מה השתנה, מה חדש בתשובות, מה לבדוק. הטקסט נשמר כאן.')
+      : 'אם רוצים: Claude עובר על מה שהתקבל, ומציע אם לשלוח עוד הכנה לפני הפגישה. הטקסט נשמר כאן.'),
+    el('div', { class: 'row' }, cBtn, cMsg));
 
-  // הכנה לפגישה: a button until there is one; written with Claude, kept here, editable
-  const prepT = T.prep && T.prep.text ? T.prep : null;
-  const draftAt = (E.prepDrafts || {})[n];
-  const prepMsg = el('div', { class: 'prep-msg', 'aria-live': 'polite' });
-  const prepBtn = el('button', { type: 'button', class: prepT ? 'link-btn small prep-claude' : 'btn secondary prep-claude', onclick: () => openPrep(r, n, prepBtn, prepMsg) },
-    prepT ? 'עדכון ב-Claude' : draftAt ? 'המשך ההכנה ב-Claude' : 'הכנה לפגישה עם Claude');
-  const prepPart = el('div', { class: 'mtg-part prep' }, el('h4', {}, 'הכנה לפגישה',
-      prepT ? el('span', { class: 'muted small by' }, ' · ' + (prepT.byName || '') + ', ' + fmtWhen(prepT.at)) : null),
-    prepT ? el('textarea', { id: 'm_prep', 'data-keep': '1', rows: '7' }, prepT.text) : null,
-    prepT ? null : el('p', { class: 'hint' }, draftAt ? 'יש טיוטה ב-Claude שעוד לא אושרה.' : 'Claude כותב הכנה קצרה: מה סוכם בפגישה הקודמת, מה חדש בתשובות, מה לשאול ומה לבדוק.'),
-    el('div', { class: 'row' }, prepBtn, prepMsg));
-
-  const areas = MEET_TEXT.map(([f, lab, ph]) => {
+  const TEXTS = meet ? [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות', 'מה סוכם, ומה הכיוון להמשך']]
+    : [['decisions', 'מה הוחלט', 'מה עולה ממה שהתקבל, ומה עושים עכשיו']];
+  const areas = TEXTS.map(([f, lab, ph]) => {
     const x = el('textarea', { id: 'm_' + f, 'data-keep': '1', rows: f === 'summary' ? '5' : '3', placeholder: ph }, (T[f] || {}).text || '');
     return el('label', { class: 'field mtg-text' }, el('span', {}, lab,
       T[f] && T[f].text ? el('span', { class: 'muted small by' }, ' · ' + (T[f].byName || '') + ', ' + fmtWhen(T[f].at)) : null), x);
   });
+  const oldTask = T.task && T.task.text ? el('p', { class: 'small muted old-task' }, 'משימה (מלפני האינטראקציות): ' + T.task.text) : null;
 
-  // the questionnaires to fill before the next meeting (saving opens them for the נועץ)
+  // what comes next: questionnaires to open, tasks for the נועץ, and the kind of the next interaction
   const ci = r.caseInfo || {};
   const fits = q => !(q.groups && q.groups.length) || q.groups.indexOf(ci.group) !== -1 || m.given.indexOf(q.id) !== -1;
   const giveBox = q => el('label', { class: 'check' + (q.sentAt ? ' was-sent' : '') },
     el('input', { type: 'checkbox', value: q.id, checked: m.given.indexOf(q.id) !== -1 }), ' ' + q.title,
     q.sentAt ? el('span', { class: 'muted small' }, ' (כבר מולא)') : q.open && m.given.indexOf(q.id) === -1 ? el('span', { class: 'muted small' }, ' (פתוח)') : null);
   const otherQs = r.questionnaires.filter(q => q.id && !fits(q));
-  const nextPart = el('div', { class: 'mtg-part' }, el('h4', {}, 'שאלונים לפגישה הבאה'),
-    el('p', { class: 'hint' }, 'מה שמסמנים נפתח לנועץ/ת בשמירה.'),
+  const qPart = el('div', { class: 'give-qs' }, el('b', { class: 'small' }, 'שאלונים לפתוח לנועץ/ת'),
     el('div', { class: 'checks' }, r.questionnaires.filter(q => q.id && fits(q)).map(giveBox)),
     otherQs.length ? el('details', { class: 'more-give' }, el('summary', { class: 'small' }, 'שאלונים לקבוצות אחרות (' + otherQs.length + ')'),
       el('div', { class: 'checks' }, otherQs.map(giveBox))) : null);
-
-  const old = ((E.notes || []).filter(x => x.sub === 'סיכום פגישה ' + ORD[n - 1]));
-  const oldPart = old.length ? el('details', { class: 'mtg-old' }, el('summary', {}, 'סיכום קודם מ"הרשמים שלי" (' + old.length + ')'),
-    old.map(x => el('div', { class: 'note' }, el('div', { class: 'note-head' }, el('span', { class: 'muted small' }, x.at + ' · ' + x.byName)), el('div', { class: 'note-text' }, x.text)))) : null;
+  const taskRows = el('div', { class: 'tasks-edit' });
+  const addTaskRow = k => {
+    const text = el('input', { type: 'text', class: 'task-text', maxlength: '1500', value: k ? k.text : '', placeholder: 'למשל: לשוחח עם שני אנשים שעובדים בתחום' });
+    const box = el('input', { type: 'checkbox', class: 'task-box', checked: !!(k && k.box) });
+    const row = el('div', { class: 'task-row' }, text, el('label', { class: 'check small' }, box, ' תיבת מענה (הנועץ/ת מעלה קובץ Word)'),
+      el('button', { type: 'button', class: 'link-btn small del', 'aria-label': 'מחיקת המשימה', onclick: () => row.remove() }, '✕'),
+      k && k.box && A[k.id] ? el('div', { class: 'task-ans small' }, 'תשובה: ', A[k.id].url ? el('a', { href: A[k.id].url, target: '_blank', rel: 'noopener' }, A[k.id].name) : A[k.id].name, el('span', { class: 'muted' }, ' · ' + fmtWhen(A[k.id].at))) : null);
+    row._get = () => ({ id: k ? k.id : undefined, text: text.value, box: box.checked });
+    taskRows.append(row);
+    return text;
+  };
+  m.tasks.forEach(k => addTaskRow(k));
+  const taskPart = el('div', { class: 'give-tasks' }, el('b', { class: 'small' }, 'משימות לנועץ/ת עד האינטראקציה הבאה'),
+    el('p', { class: 'hint small' }, 'הנועץ/ת רואה אותן בעמוד הראשי שלו/ה מרגע שהאינטראקציה סומנה שהתקיימה.'), taskRows,
+    el('button', { type: 'button', class: 'link-btn small add-task', onclick: () => addTaskRow(null).focus() }, '+ משימה'));
+  const following = ms[n];
+  const nextKind = following && !following.done ? following.kind : 'meet';
+  const nextBox = el('div', { class: 'next-kind radios', role: 'radiogroup' }, el('b', { class: 'small' }, 'האינטראקציה הבאה: '),
+    ['meet', 'proc'].map(k => el('label', { class: 'check' }, el('input', { type: 'radio', name: 'm_next', value: k, checked: k === nextKind,
+      disabled: !!(following && following.done) }), ' ' + KIND[k])));
+  const nextPart = el('div', { class: 'mtg-part next-part' }, el('h4', {}, 'מה הלאה'), qPart, taskPart, nextBox);
 
   if (meetFlash && meetFlash.email === c.email && meetFlash.n === n) {
     msg.append(el('span', { class: 'saved-note' }, meetFlash.text));
-    if (meetFlash.opened.length) {
+    if (meetFlash.mail) {
       const mb = el('button', { type: 'button', class: 'btn secondary small', onclick: async () => {
         const res = await withBusy(mb, () => api('mailOpened', { email: c.email }));
         if (!res.ok) { if (!res.handled) msg.replaceChildren(msgBox(res.message || 'המייל לא נשלח')); return; }
         meetFlash = null; cacheDrop('client_' + c.email);
         msg.replaceChildren(el('span', { class: 'saved-note' }, 'נשלח מייל על: ' + res.sentAbout.join(', ')));
-      } }, 'שליחת מייל לנועץ על השאלונים הפתוחים');
+      } }, 'שליחת מייל לנועץ על השאלונים והמשימות');
       msg.append(' ', mb);
     }
   }
 
   const save = el('button', { type: 'button', class: 'btn primary', id: 'm_save', onclick: async () => {
     msg.replaceChildren();
-    const texts = {}; MEET_TEXT.forEach(([f]) => { texts[f] = document.getElementById('m_' + f).value; });
-    if (document.getElementById('m_prep')) texts.prep = document.getElementById('m_prep').value;
-    const given = [...nextPart.querySelectorAll('input:checked')].map(x => x.value);
-    const res = await withBusy(save, () => api('meetSave', { email: c.email, n: n, done: done.checked, date: date.value, time: time.value, given: given, texts: texts }));
+    const texts = {}; TEXTS.forEach(([f]) => { texts[f] = document.getElementById('m_' + f).value; });
+    if (document.getElementById('m_' + field)) texts[field] = document.getElementById('m_' + field).value;
+    const given = [...qPart.querySelectorAll('input:checked')].map(x => x.value);
+    const tasks = [...taskRows.children].map(x => x._get()).filter(x => x.text.trim());
+    const nx = nextBox.querySelector('input:checked');
+    const before = m.tasks.map(k => k.id).join();
+    const res = await withBusy(save, () => api('meetSave', { email: c.email, n: n, done: done.checked, date: date.value, time: meet ? time.value : '',
+      given: given, tasks: tasks, next: done.checked && nx ? nx.value : undefined, texts: texts }));
     if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
     const titles = (res.opened || []).map(id => (byId[id] || {}).title || id);
-    meetSel[c.email] = n; // stay on this meeting after the save
-    meetFlash = { email: c.email, n: n, opened: res.opened || [], text: 'נשמר' + (titles.length ? '. נפתחו לנועץ/ת: ' + titles.join(', ') : '') };
-    MEET_TEXT.concat([['prep']]).forEach(([f]) => { const x = document.getElementById('m_' + f); if (x) x.defaultValue = x.value; });
+    const saved = (res.caseInfo.meetings || [])[n - 1] || {};
+    const newTasks = done.checked && (saved.tasks || []).length && (saved.tasks || []).map(k => k.id).join() !== before;
+    meetSel[c.email] = n; // stay on this interaction after the save
+    meetFlash = { email: c.email, n: n, mail: !!(titles.length || newTasks || (done.checked && !m.done && (saved.tasks || []).length)),
+      text: 'נשמר' + (titles.length ? '. נפתחו לנועץ/ת: ' + titles.join(', ') : '') + (res.added ? '. נוספה ' + KIND[(res.caseInfo.meetings[res.added - 1] || {}).kind] + ' ' + res.added : '') };
+    TEXTS.concat([[field]]).forEach(([f]) => { const x = document.getElementById('m_' + f); if (x) x.defaultValue = x.value; });
     afterMeetSave(r, res);
-  } }, 'שמירת הפגישה');
+  } }, 'שמירה');
 
-  return el('div', { class: 'card mtg-card' + (m.done ? ' done' : '') },
-    el('div', { class: 'mtg-head' }, el('h3', {}, 'פגישה ' + (ORD[n - 1] || n)),
-      el('span', { class: 'mtg-when' }, el('label', { class: 'check' }, done, ' התקיימה'), date, time)),
-    filled,
-    prepPart,
+  return el('div', { class: 'card mtg-card ' + m.kind + (m.done ? ' done' : '') },
+    el('div', { class: 'mtg-head' }, el('h3', {}, KIND[m.kind] + ' ' + n),
+      el('span', { class: 'mtg-when' }, kind, el('label', { class: 'check' }, done, meet ? ' התקיימה' : ' בוצע'),
+        meet ? date : (m.date ? el('span', { class: 'small' }, fmtDay(m.date)) : null), meet ? time : null)),
+    inputsPart(r, ms, n),
+    claudePart,
     areas,
+    oldTask,
     nextPart,
-    oldPart,
     el('div', { class: 'row' }, save, msg));
 }
 
-let prepWait = null; // { email, n, until, was }: waiting for a prep approved in Claude
-async function openPrep(r, n, btn, msg) {
+let prepWait = null; // { email, n, field, until, was }: waiting for what Claude writes into an interaction
+async function openPrep(r, n, btn, msg, field) {
   const c = r.client;
   msg.replaceChildren();
   if (!r.claudeUrl) { msg.append(msgBox('קודם צריך להגדיר את הקישור לדף Claude שלך, בהגדרות.')); return; }
   let w = null;
   try { w = window.open('', '_blank'); } catch (e) { w = null; }
-  if (w) { try { w.document.title = 'מכינים את הפגישה…'; w.document.body.textContent = 'מכינים את הפגישה ל-Claude…'; } catch (e) { } }
+  if (w) { try { w.document.title = 'מכינים את התיק…'; w.document.body.textContent = 'מכינים את התיק ל-Claude…'; } catch (e) { } }
   let res;
   await withBusy(btn, async () => { res = await api('claudePrepare', { email: c.email, meet: n }); });
   if (!res || !res.ok) { if (w) w.close(); if (res && !res.handled) msg.append(msgBox(res.message)); return; }
-  // a script from before "הכנה לפגישה" ignores the meeting and prepares the regular תיק: say so instead of opening it
+  // a script from before the interactions ignores them and prepares the old package: say so instead of opening it
   if (res.meet !== n) {
     if (w) w.close();
-    msg.append(msgBox('הסקריפט בשרת עדיין בגרסה ישנה, שלא מכירה את "הכנה לפגישה". צריך להדביק בסקריפט של אתר היועצים את הקבצים החדשים, להריץ setup, ולפרסם גרסה חדשה (Deploy ← Manage deployments ← New version).'));
+    msg.append(msgBox('הסקריפט בשרת עדיין בגרסה ישנה. צריך להדביק בסקריפט של אתר היועצים את הקבצים החדשים, להריץ setup, ולפרסם גרסה חדשה (Deploy ← Manage deployments ← New version).'));
     return;
   }
   const link = (res.url || r.claudeUrl) + '#' + res.req;
   if (w) { try { w.opener = null; w.location.href = link; } catch (e) { w = null; } }
   msg.append(el('span', { class: 'small' }, w ? 'נפתח בלשונית חדשה. ' : '',
     el('a', { href: link, target: '_blank', rel: 'noopener', class: 'claude-link' }, w ? 'לא נפתח? לחצו כאן' : 'פתיחה ב-Claude'),
-    '. אחרי האישור שם, ההכנה תופיע כאן.'));
-  const was = (((r.entries || {}).meetTexts || {})[n] || {}).prep;
-  prepWait = { email: c.email, n: n, until: Date.now() + 30 * 60000, was: was ? was.at + was.text : '' };
+    '. מה ש-Claude כותב יופיע כאן.'));
+  const was = (((r.entries || {}).meetTexts || {})[n] || {})[field];
+  prepWait = { email: c.email, n: n, field: field, until: Date.now() + 30 * 60000, was: was ? was.at + was.text : '' };
 }
-// while waiting: check every 15 seconds (only when this tab is on screen)
+// while waiting: check every 15 seconds (only when this tab is on screen, and the תיק is the screen)
 setInterval(async () => {
   const w = prepWait;
   if (!w || document.visibilityState !== 'visible') return;
@@ -614,10 +677,10 @@ setInterval(async () => {
   if (!app.querySelector('.case-tab')) return; // another screen is open: wait until the תיק is back on screen
   const r = await api('clientGet', { email: w.email });
   if (!r.ok || prepWait !== w || currentClient !== w.email || !app.querySelector('.case-tab')) return;
-  const p = ((r.entries.meetTexts || {})[w.n] || {}).prep;
+  const p = ((r.entries.meetTexts || {})[w.n] || {})[w.field];
   if (p && p.at + p.text !== w.was) {
-    prepWait = null; cachePut('client_' + w.email, r);
-    meetSel[w.email] = w.n; caseTab = 'meet'; drawClient(r, true);
+    w.was = p.at + p.text; cachePut('client_' + w.email, r); // keep watching: a correction in Claude rewrites it again
+    meetSel[w.email] = w.n; drawClient(r, true);
   }
 }, 15000);
 
@@ -718,7 +781,7 @@ function caseDetails(r, L) {
     tags: inp('c_tags', (ci.tags || []).join(', ')), age: inp('c_age', ci.age), years: inp('c_years', ci.years),
     gender: select('c_gender', [['f', 'נועצת'], ['m', 'נועץ']], c.gender || 'f'),
     kind: select('c_kind', [['', 'לא נבחר']].concat(L.kinds), ci.kind || ''),
-    group: select('c_group', [['', 'לא נבחרה']].concat(L.groups), ci.group || ''),
+    group: select('c_group', [['', 'לא נבחרה']].concat(openGroups(L.groups, ci.group)), ci.group || ''),
     note: el('textarea', { id: 'c_note', rows: '3' }, ci.note || ''),
     consent: el('input', { type: 'checkbox', id: 'c_consent', checked: !!ci.consent }),
     staff: !(me && me.admin) ? null : select('c_staff', [['', 'לא נבחר/ה']].concat(ci.staff && !(L.staff || []).some(s => s[0] === ci.staff) ? [[ci.staff, ci.staff]] : []).concat(L.staff || []), ci.staff || '')
@@ -737,152 +800,6 @@ function caseDetails(r, L) {
       field('הערה כללית', f.note),
       el('label', { class: 'check consent' }, f.consent, ' הנועץ/ת הסכים/ה שהמידע יישמר בתיק' + (ci.consentAt ? ' (' + ci.consentAt + ')' : '')),
       msg, el('div', { class: 'row' }, btn)));
-}
-
-// ---------- "הרשמים שלי" ----------
-function notesSection(r) {
-  const c = r.client, L = r.lists, notes = (r.entries && r.entries.notes) || [];
-  const msg = el('div');
-  const kinds = L.noteKinds.filter(k => k !== 'סיכום פגישה');
-  const kind = radios('n_kind', kinds.map(k => [k, k]), kinds[0]);
-  const meetsDone = notes.filter(n => /^סיכום פגישה/.test(n.sub)).length;
-  const meet = select('n_meet', L.meets.map(m => [m, m]), L.meets[Math.min(meetsDone, L.meets.length - 1)]);
-  const meetBox = el('div', { class: 'field meet', hidden: true }, el('span', {}, 'איזו פגישה?'), meet,
-    el('p', { class: 'hint' }, 'מצב השאלונים עד היום נכנס לסיכום אוטומטית.'));
-  const text = el('textarea', { id: 'n_text', 'data-keep': '1', rows: '5', placeholder: 'מה עלה? מה הרגשת? מה סוכם?' });
-  kind.node.addEventListener('change', () => { meetBox.hidden = kind.value() !== 'סיכום פגישה'; });
-  const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירה');
-  const list = notes.length ? notes.map(n => el('div', { class: 'note' },
-    el('div', { class: 'note-head' }, el('b', {}, n.sub || 'הערה'), el('span', { class: 'muted small' }, n.at + ' · ' + n.byName),
-      n.by === (me && me.email) ? el('button', { type: 'button', class: 'link-btn small del', onclick: async (e) => {
-        const b = e.currentTarget;
-        if (b.dataset.arm !== '1') { b.dataset.arm = '1'; b.textContent = 'לחיצה נוספת תמחק'; return; }
-        const res = await api('noteDelete', { email: c.email, id: n.id });
-        if (!res.ok) { if (!res.handled) msg.replaceChildren(msgBox(res.message)); return; }
-        cacheDrop('client_' + c.email); showClient(c.email);
-      } }, 'מחיקה') : null),
-    el('div', { class: 'note-text' }, n.text))) : [el('p', { class: 'muted' }, 'עוד אין רשמים. אחרי פגישה, כתבו כאן מה עלה.')];
-  return el('div', {},
-    el('form', { class: 'card note-form', onsubmit: async (e) => {
-      e.preventDefault(); msg.replaceChildren();
-      if (!text.value.trim()) { msg.append(msgBox('הרושם ריק.')); return; }
-      await withBusy(btn, async () => {
-        const res = await api('noteAdd', { email: c.email, kind: kind.value(), meet: meet.value, text: text.value });
-        if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
-        cacheDrop('client_' + c.email); showClient(c.email);
-      });
-    } }, el('h3', {}, 'רושם חדש'), kind.node, meetBox, text, msg, el('div', { class: 'row' }, btn)),
-    el('div', { class: 'notes' }, list));
-}
-
-// ---------- Claude: the conversations and the feedback draft, and the button that opens the Claude page ----------
-function claudeSection(r) {
-  const c = r.client, E = r.entries || { threads: [], feedback: null };
-  const msg = el('div', { 'aria-live': 'polite' });
-  const btn = el('button', { type: 'button', class: 'btn primary', id: 'openClaude', onclick: () => openInClaude(c, r.claudeUrl, btn, msg) }, 'פתיחה ב-Claude');
-  const refresh = el('button', { type: 'button', class: 'btn secondary small', onclick: async () => {
-    await withBusy(refresh, () => api('caseSync'));
-    cacheDrop('client_' + c.email); showClient(c.email);
-  } }, 'רענון');
-  const threads = (E.threads || []).slice().reverse();
-  const last = threads[0];
-  const head = el('div', { class: 'card claude-head' },
-    el('div', { class: 'row spread' }, el('div', {},
-      el('h3', {}, 'ניתוח וירטואלי ומשוב לנועץ'),
-      el('p', { class: 'muted small' }, 'נפתח בדף Claude שלך, עם כל מה שבתיק. כל תשובה של Claude נשמרת כאן בתיק.')),
-      el('div', { class: 'row' }, btn, refresh)),
-    r.claudeUrl ? null : el('p', { class: 'warn small' }, 'עוד לא הוגדר הקישור לדף Claude שלך. ', el('button', { type: 'button', class: 'link-btn', onclick: () => showSettings() }, 'להגדרות')),
-    msg);
-  const fb = E.feedback;
-  const sent = E.sentFeedback || [];
-  const fbCard = fb ? feedbackCard(c, fb, sent) : null;
-  const convo = th => el('div', { class: 'thread' }, th.messages.map(m => el('div', { class: 'bub ' + (m.role === 'me' ? 'me' : 'ai') },
-    el('div', { class: 'who' }, (m.role === 'me' ? m.byName : m.role === 'summary' ? 'סיכום שיחה קודמת' : 'Claude') + ' · ' + m.at),
-    el('div', { class: 'md' }, md(m.text)))));
-  return el('div', {}, head,
-    last ? el('div', {}, el('h3', { class: 'sub-title' }, 'השיחה האחרונה'), convo(last)) : el('p', { class: 'muted' }, 'עוד אין ניתוחים בתיק הזה.'),
-    threads.length > 1 ? el('details', { class: 'older' }, el('summary', {}, 'שיחות קודמות (' + (threads.length - 1) + ')'),
-      threads.slice(1).map(convo)) : null,
-    fbCard);
-}
-
-// The feedback draft (from Claude, or as corrected there): read it, adjust it here if needed, and send it to the נועץ
-function feedbackCard(c, fb, sent) {
-  const already = sent.length && sent[0].text === fb.text;
-  const ta = el('textarea', { class: 'fb-edit', rows: '14', 'aria-label': 'נוסח המשוב' }); ta.value = fb.text;
-  const msg = el('span', { class: 'saved-note', 'aria-live': 'polite' }, already ? 'הנוסח הזה כבר נשלח לנועץ ב-' + sent[0].at : '');
-  let armed = false;
-  const send = el('button', { type: 'button', class: 'btn primary small fb-send', onclick: async () => {
-    if (!ta.value.trim()) { msg.textContent = 'המשוב ריק.'; return; }
-    if (!armed) { armed = true; send.textContent = 'לשלוח במייל ל' + (c.name || c.email) + '? לחיצה נוספת שולחת'; return; }
-    const res = await withBusy(send, () => api('fbSend', { email: c.email, text: ta.value }));
-    armed = false; send.textContent = 'שליחה לנועץ';
-    if (!res.ok) { if (!res.handled) msg.textContent = res.message || 'המשוב לא נשלח'; return; }
-    msg.textContent = 'המשוב נשלח לנועץ במייל, ונשמר גם בעמוד הראשי שלו באתר.';
-    cacheDrop('client_' + c.email);
-  } }, 'שליחה לנועץ');
-  return el('div', { class: 'card fb' },
-    el('div', { class: 'row spread' }, el('h3', {}, 'משוב לנועץ · ' + (fb.sub === 'me' ? 'הגרסה שתוקנה' : 'הטיוטה של Claude')),
-      el('span', { class: 'muted small' }, fb.at + ' · ' + fb.byName)),
-    el('p', { class: 'muted small' }, 'אפשר לתקן כאן לפני השליחה. הנועץ יקבל את המשוב במייל, והוא יישמר גם בעמוד הראשי שלו באתר.'),
-    ta,
-    el('div', { class: 'row' }, send, copyRow(fb.text), msg),
-    sent.length ? el('details', { class: 'fb-sent' }, el('summary', {}, 'נשלח לנועץ (' + sent.length + ')'),
-      sent.map(s => el('div', { class: 'fb-sent-item' }, el('div', { class: 'muted small' }, s.at + ' · ' + s.byName), el('div', { class: 'fb-text' }, s.text)))) : null);
-}
-
-function copyRow(text) {
-  const done = el('span', { class: 'copied', 'aria-live': 'polite' });
-  return el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn secondary small', onclick: async () => {
-    done.textContent = (await copyText(text)) ? 'הועתק' : 'ההעתקה לא הצליחה';
-    setTimeout(() => { done.textContent = ''; }, 2200);
-  } }, 'העתקה'), done);
-}
-
-// Prepares the תיק for Claude, then opens the Claude page on it. The new tab is opened at the click
-// (browsers block tabs opened later), and pointed at the page once the תיק is ready.
-async function openInClaude(c, url, btn, msg) {
-  msg.replaceChildren();
-  if (!url) { msg.append(msgBox('קודם צריך להגדיר את הקישור לדף Claude שלך, בהגדרות.')); return; }
-  let w = null;
-  try { w = window.open('', '_blank'); } catch (e) { w = null; }
-  if (w) { try { w.document.title = 'מכינים את התיק…'; w.document.body.textContent = 'מכינים את התיק ל-Claude…'; } catch (e) { } }
-  let res;
-  await withBusy(btn, async () => { res = await api('claudePrepare', { email: c.email }); });
-  if (!res || !res.ok) {
-    if (w) w.close();
-    if (res && !res.handled) msg.append(msgBox(res.message));
-    return;
-  }
-  const link = (res.url || url) + '#' + res.req;
-  if (w) { try { w.opener = null; w.location.href = link; } catch (e) { w = null; } }
-  msg.append(el('p', { class: 'small' }, w ? 'נפתח בלשונית חדשה. ' : 'הדף מוכן: ',
-    el('a', { href: link, target: '_blank', rel: 'noopener', class: 'claude-link' }, w ? 'לא נפתח? לחצו כאן' : 'פתיחה ב-Claude'),
-    '. כשחוזרים ללשונית הזו, התיק מתעדכן לבד.'));
-}
-
-// Claude writes ## headings, **bold**, lists – shown as such (the text is escaped first)
-function md(t) {
-  const box = el('div');
-  let list = null;
-  String(t || '').split('\n').forEach(line => {
-    const L = line.trim();
-    const inline = (s) => {
-      const span = el('span');
-      s.split(/(\*\*[^*]+\*\*)/).forEach(part => {
-        if (/^\*\*[^*]+\*\*$/.test(part)) span.append(el('b', {}, part.slice(2, -2)));
-        else if (part) span.append(document.createTextNode(part.replace(/\*/g, '')));
-      });
-      return span;
-    };
-    if (/^#{1,4}\s/.test(L)) { list = null; box.append(el('h4', {}, inline(L.replace(/^#+\s*/, '')))); }
-    else if (/^([-*•]|\d+[.)])\s+/.test(L)) {
-      if (!list) { list = el('ul'); box.append(list); }
-      list.append(el('li', {}, inline(L.replace(/^([-*•]|\d+[.)])\s+/, ''))));
-    } else if (L) { list = null; box.append(el('p', {}, inline(L))); }
-    else list = null;
-  });
-  return box;
 }
 
 // When you come back to this tab (from Claude), the תיק on screen is refreshed
