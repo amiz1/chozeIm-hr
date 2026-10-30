@@ -257,7 +257,8 @@ function drawClients(r, refresh) {
       onkeydown: (e) => { if (e.key === 'Enter') showClient(c.email); } },
       el('td', {}, el('b', {}, c.name || '—'),
         c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נרשם/ה') : null,
-        c.group || (c.tags || []).length ? el('div', { class: 'list-meta' }, [groupShort(c.group)].concat(c.tags || []).filter(Boolean).join(' · ')) : null),
+        c.group || (c.tags || []).length ? el('div', { class: 'list-meta' }, [groupShort(c.group)].concat(c.tags || []).filter(Boolean).join(' · ')) : null,
+        c.next && c.next.date ? el('div', { class: 'list-meta next-meet' }, 'פגישה ' + c.next.n + ': ' + fmtDay(c.next.date) + (c.next.time ? ' · ' + c.next.time : '')) : null),
       el('td', { dir: 'ltr', class: 'mail' }, c.email),
       el('td', {}, c.created || '—'),
       el('td', {}, el('span', { class: 'count' + (c.sent.length ? ' some' : '') }, c.sent.length + ' / ' + total),
@@ -309,6 +310,7 @@ function drawClient(r, refresh) {
   const genderWord = c.gender === 'f' ? 'נועצת' : c.gender === 'm' ? 'נועץ' : '';
   const facts = [genderWord, label(L.groups, ci.group), ci.fac, ci.age ? 'גיל ' + ci.age : '', ci.years ? ci.years + ' שנות ניסיון' : '']
     .concat(ci.tags || []).filter(Boolean);
+  currentReminders = (r.entries && r.entries.reminders) || {};
   const intake = r.questionnaires.filter(q => q.id === 'intake' && q.state)[0];
   const suggested = !ci.group && intake ? groupFromIntake(intake.state) : '';
 
@@ -329,12 +331,15 @@ function drawClient(r, refresh) {
     el('p', { class: 'sub case-facts' }, facts.join(' · ') || 'עוד אין פרטים'),
     el('p', { class: 'muted small case-contact' }, el('span', { dir: 'ltr' }, c.email), ci.phone ? el('span', {}, ' · ', el('span', { dir: 'ltr' }, ci.phone)) : null,
       c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נרשם/ה לאתר') : ' · נרשם/ה ' + (c.created || '—'),
-      ci.consent ? ' · הסכמה לשמירת מידע ' + ci.consentAt : ''),
+      ci.consent ? ' · הסכמה לשמירת מידע ' + ci.consentAt : '',
+      ci.privacyAt ? ' · אישר/ה את מדיניות הפרטיות ' + ci.privacyAt : (c.registered === false ? '' : ' · טרם אישר/ה את מדיניות הפרטיות')),
+    meetingsCard(r),
     caseDetails(r, L),
     !ci.group ? el('div', { class: 'card group-pick' }, el('b', {}, 'קבוצה: '), el('span', { class: 'muted' }, suggested ? 'הצעה לפי שאלון הכניסה: ' : 'עוד לא נבחרה. '),
       el('div', { class: 'row' }, L.groups.map(([v, l]) => el('button', { type: 'button', class: 'btn small ' + (v === suggested ? 'primary' : 'secondary'),
         onclick: () => saveCase(c.email, { group: v }) }, l.split(' · ').slice(0, 2).join(' · '))))) : null,
     el('h2', { class: 'section-title' }, 'השאלונים', el('span', { class: 'muted small' }, ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' נשלחו')),
+    openMailRow(r),
     blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
     others.length ? el('details', { class: 'more-q' }, el('summary', {}, 'שאלונים נוספים, לקבוצות אחרות (' + others.length + ')'),
       el('div', { class: 'qlist' }, others.map(q => questionnaireRow(q, c)))) : null,
@@ -350,6 +355,51 @@ function groupFromIntake(state) {
   const q1 = state && state.a ? state.a.q1 : null;
   if (q1 === null || q1 === undefined) return '';
   return q1 === 4 ? '3a' : q1 === 5 ? '3b' : q1 === 0 ? '' : '2';
+}
+
+const fmtDay = d => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? (+m[3]) + '.' + (+m[2]) + '.' + m[1] : String(d || ''); };
+let currentReminders = {};
+
+// ---------- the four meetings: which were held, and when the next one is ----------
+function meetingsCard(r) {
+  const c = r.client, ms = ((r.caseInfo || {}).meetings || []).slice(0, 4);
+  while (ms.length < 4) ms.push({ done: false, date: '', time: '' });
+  const nextI = ms.findIndex(m => !m.done);
+  const msg = el('span', { class: 'saved-note', 'aria-live': 'polite' });
+  const rows = ms.map((m, i) => {
+    const done = el('input', { type: 'checkbox', checked: m.done, 'aria-label': 'פגישה ' + (i + 1) + ' התקיימה' });
+    const date = el('input', { type: 'date', value: m.date || '', 'aria-label': 'תאריך פגישה ' + (i + 1) });
+    const time = el('input', { type: 'time', value: m.time || '', 'aria-label': 'שעה' });
+    const step = el('div', { class: 'mtg' + (m.done ? ' done' : '') + (i === nextI ? ' next' : '') },
+      el('div', { class: 'mtg-n' }, String(i + 1)),
+      el('div', { class: 'mtg-body' },
+        el('b', {}, 'פגישה ' + ['ראשונה', 'שנייה', 'שלישית', 'רביעית'][i]),
+        el('div', { class: 'mtg-state small' }, m.done ? 'התקיימה' + (m.date ? ' · ' + fmtDay(m.date) : '') : i === nextI ? (m.date ? 'הבאה · ' + fmtDay(m.date) + (m.time ? ' · ' + m.time : '') : 'הבאה · עוד לא נקבע מועד') : ''),
+        el('div', { class: 'mtg-edit' }, el('label', { class: 'check' }, done, ' התקיימה'), date, time)));
+    step._get = () => ({ done: done.checked, date: date.value, time: time.value });
+    return step;
+  });
+  const save = el('button', { type: 'button', class: 'btn secondary small', onclick: async () => {
+    msg.textContent = 'שומר…';
+    await withBusy(save, () => saveCase(c.email, { meetings: rows.map(x => x._get()) }, null));
+  } }, 'שמירת הפגישות');
+  return el('div', { class: 'card meetings' },
+    el('div', { class: 'row spread' }, el('h3', {}, 'הפגישות'), el('span', {}, msg, save)),
+    el('div', { class: 'mtg-row' }, rows));
+}
+
+// ---------- emails to the נועץ ----------
+function openMailRow(r) {
+  const c = r.client, E = r.entries || {};
+  const openUnsent = r.questionnaires.filter(q => q.open && !q.sentAt).length;
+  const note = el('span', { class: 'muted small', 'aria-live': 'polite' }, E.openMail ? 'מייל אחרון על שאלונים פתוחים: ' + E.openMail : '');
+  const btn = el('button', { type: 'button', class: 'btn secondary small open-mail', disabled: !openUnsent, onclick: async () => {
+    const res = await withBusy(btn, () => api('mailOpened', { email: c.email }));
+    if (!res.ok) { if (!res.handled) note.textContent = res.message || 'המייל לא נשלח'; return; }
+    note.textContent = 'נשלח מייל על: ' + res.sentAbout.join(', ');
+    cacheDrop('client_' + c.email);
+  } }, 'שליחת מייל לנועץ על השאלונים הפתוחים' + (openUnsent ? ' (' + openUnsent + ')' : ''));
+  return el('div', { class: 'row open-mail-row' }, btn, note);
 }
 
 async function saveCase(email, fields, msgEl) {
@@ -444,11 +494,8 @@ function claudeSection(r) {
     r.claudeUrl ? null : el('p', { class: 'warn small' }, 'עוד לא הוגדר הקישור לדף Claude שלך. ', el('button', { type: 'button', class: 'link-btn', onclick: () => showSettings() }, 'להגדרות')),
     msg);
   const fb = E.feedback;
-  const fbCard = fb ? el('div', { class: 'card fb' },
-    el('div', { class: 'row spread' }, el('h3', {}, 'משוב לנועץ · ' + (fb.sub === 'me' ? 'הגרסה שתוקנה' : 'הטיוטה של Claude')),
-      el('span', { class: 'muted small' }, fb.at + ' · ' + fb.byName)),
-    el('div', { class: 'fb-text' }, fb.text),
-    copyRow(fb.text)) : null;
+  const sent = E.sentFeedback || [];
+  const fbCard = fb ? feedbackCard(c, fb, sent) : null;
   const convo = th => el('div', { class: 'thread' }, th.messages.map(m => el('div', { class: 'bub ' + (m.role === 'me' ? 'me' : 'ai') },
     el('div', { class: 'who' }, (m.role === 'me' ? m.byName : m.role === 'summary' ? 'סיכום שיחה קודמת' : 'Claude') + ' · ' + m.at),
     el('div', { class: 'md' }, md(m.text)))));
@@ -457,6 +504,31 @@ function claudeSection(r) {
     threads.length > 1 ? el('details', { class: 'older' }, el('summary', {}, 'שיחות קודמות (' + (threads.length - 1) + ')'),
       threads.slice(1).map(convo)) : null,
     fbCard);
+}
+
+// The feedback draft (from Claude, or as corrected there): read it, adjust it here if needed, and send it to the נועץ
+function feedbackCard(c, fb, sent) {
+  const already = sent.length && sent[0].text === fb.text;
+  const ta = el('textarea', { class: 'fb-edit', rows: '14', 'aria-label': 'נוסח המשוב' }); ta.value = fb.text;
+  const msg = el('span', { class: 'saved-note', 'aria-live': 'polite' }, already ? 'הנוסח הזה כבר נשלח לנועץ ב-' + sent[0].at : '');
+  let armed = false;
+  const send = el('button', { type: 'button', class: 'btn primary small fb-send', onclick: async () => {
+    if (!ta.value.trim()) { msg.textContent = 'המשוב ריק.'; return; }
+    if (!armed) { armed = true; send.textContent = 'לשלוח במייל ל' + (c.name || c.email) + '? לחיצה נוספת שולחת'; return; }
+    const res = await withBusy(send, () => api('fbSend', { email: c.email, text: ta.value }));
+    armed = false; send.textContent = 'שליחה לנועץ';
+    if (!res.ok) { if (!res.handled) msg.textContent = res.message || 'המשוב לא נשלח'; return; }
+    msg.textContent = 'המשוב נשלח לנועץ במייל, ונשמר גם בעמוד הראשי שלו באתר.';
+    cacheDrop('client_' + c.email);
+  } }, 'שליחה לנועץ');
+  return el('div', { class: 'card fb' },
+    el('div', { class: 'row spread' }, el('h3', {}, 'משוב לנועץ · ' + (fb.sub === 'me' ? 'הגרסה שתוקנה' : 'הטיוטה של Claude')),
+      el('span', { class: 'muted small' }, fb.at + ' · ' + fb.byName)),
+    el('p', { class: 'muted small' }, 'אפשר לתקן כאן לפני השליחה. הנועץ יקבל את המשוב במייל, והוא יישמר גם בעמוד הראשי שלו באתר.'),
+    ta,
+    el('div', { class: 'row' }, send, copyRow(fb.text), msg),
+    sent.length ? el('details', { class: 'fb-sent' }, el('summary', {}, 'נשלח לנועץ (' + sent.length + ')'),
+      sent.map(s => el('div', { class: 'fb-sent-item' }, el('div', { class: 'muted small' }, s.at + ' · ' + s.byName), el('div', { class: 'fb-text' }, s.text)))) : null);
 }
 
 function copyRow(text) {
@@ -536,6 +608,18 @@ function questionnaireRow(q, client) {
       if (q.id === 'intake' && q.state) parts.push(el('button', { type: 'button', class: 'btn secondary small open-analysis', onclick: () => openAnswers(q, client, 'analysis') }, 'ניתוח מלא'));
     } else {
       parts.push(el('span', { class: 'badge wait' }, q.open ? 'פתוח · טרם נשלח' : 'סגור'));
+      if (q.open) {
+        const last = currentReminders[q.id];
+        const rb = el('button', { type: 'button', class: 'btn secondary small remind', title: last ? 'תזכורת אחרונה: ' + last : '', onclick: async () => {
+          const res = await withBusy(rb, () => api('remind', { email: client.email, id: q.id }));
+          if (!res.ok) { if (!res.handled) saved.textContent = res.message || 'התזכורת לא נשלחה'; return; }
+          currentReminders = res.entries.reminders || currentReminders;
+          cacheDrop('client_' + client.email);
+          saved.textContent = 'התזכורת נשלחה'; paint();
+        } }, 'תזכורת');
+        parts.push(rb);
+        if (last) parts.push(el('span', { class: 'muted small last-remind' }, 'נשלחה ' + last));
+      }
     }
     status.replaceChildren(...parts);
   }

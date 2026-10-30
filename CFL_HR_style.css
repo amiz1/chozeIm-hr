@@ -252,3 +252,27 @@ textarea:focus, select:focus { outline: 2px solid var(--olive); outline-offset: 
 .amb-card p { margin: 6px 0; }
 .amb-card ul { margin: 6px 0; padding-inline-start: 20px; }
 .amb-card .amb-warn { color: var(--clay, #9C6B4F); }
+
+/* the four meetings */
+.meetings h3 { margin: 0; }
+.mtg-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+.mtg { display: flex; gap: 10px; border: 1px solid var(--rule); padding: 10px; background: var(--card); }
+.mtg.done { background: var(--tint); }
+.mtg.next { border-color: var(--olive); box-shadow: inset 0 0 0 1px var(--olive); }
+.mtg-n { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--olive); color: var(--olive); display: grid; place-items: center; font-weight: 700; flex: none; }
+.mtg.done .mtg-n { background: var(--olive); color: var(--paper); }
+.mtg-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mtg-state { color: var(--mute); min-height: 1.2em; }
+.mtg.next .mtg-state { color: var(--olive); font-weight: 500; }
+.mtg-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.mtg-edit input[type=date], .mtg-edit input[type=time] { font: inherit; font-size: 14px; padding: 3px 6px; border: 1px solid var(--rule); max-width: 100%; }
+@media (max-width: 760px) { .mtg-row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 420px) { .mtg-row { grid-template-columns: 1fr; } }
+.next-meet { color: var(--olive); }
+/* emails to the נועץ */
+.open-mail-row { align-items: center; gap: 10px; margin: -4px 0 12px; flex-wrap: wrap; }
+.last-remind { white-space: nowrap; }
+/* sending the feedback */
+.fb-edit { width: 100%; box-sizing: border-box; font: inherit; font-size: 15px; line-height: 1.7; padding: 10px 12px; border: 1px solid var(--rule); margin: 6px 0 10px; }
+.fb-sent { margin-top: 12px; }
+.fb-sent-item { border-top: 1px solid var(--rule); padding: 8px 0; }
