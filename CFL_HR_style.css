@@ -253,21 +253,45 @@ textarea:focus, select:focus { outline: 2px solid var(--olive); outline-offset: 
 .amb-card ul { margin: 6px 0; padding-inline-start: 20px; }
 .amb-card .amb-warn { color: var(--clay, #9C6B4F); }
 
-/* the four meetings */
-.meetings h3 { margin: 0; }
-.mtg-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
-.mtg { display: flex; gap: 10px; border: 1px solid var(--rule); padding: 10px; background: var(--card); }
-.mtg.done { background: var(--tint); }
-.mtg.next { border-color: var(--olive); box-shadow: inset 0 0 0 1px var(--olive); }
-.mtg-n { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--olive); color: var(--olive); display: grid; place-items: center; font-weight: 700; flex: none; }
-.mtg.done .mtg-n { background: var(--olive); color: var(--paper); }
-.mtg-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.mtg-state { color: var(--mute); min-height: 1.2em; }
-.mtg.next .mtg-state { color: var(--olive); font-weight: 500; }
-.mtg-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
-.mtg-edit input[type=date], .mtg-edit input[type=time] { font: inherit; font-size: 14px; padding: 3px 6px; border: 1px solid var(--rule); max-width: 100%; }
-@media (max-width: 760px) { .mtg-row { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 420px) { .mtg-row { grid-template-columns: 1fr; } }
+/* the meetings tab: a strip 1…N, and the card of one meeting */
+.mtg-strip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.mtg-pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule); background: var(--card); padding: 4px 10px 4px 6px; cursor: pointer; font: inherit; font-size: 14px; color: var(--ink); }
+.mtg-pill .mtg-n { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--olive); color: var(--olive); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+.mtg-pill.done .mtg-n { background: var(--olive); color: var(--paper); }
+.mtg-pill.next .mtg-pl { color: var(--olive); font-weight: 500; }
+.mtg-pill .mtg-pl:empty { display: none; }
+.mtg-pill.on { border-color: var(--olive); box-shadow: inset 0 0 0 1px var(--olive); background: var(--tint); }
+.mtg-pill:focus-visible { outline: 2px solid var(--gold); }
+.mtg-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; border-bottom: 1px solid var(--rule); padding-bottom: 10px; margin-bottom: 4px; }
+.mtg-head h3 { margin: 0; }
+.mtg-when { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 14px; color: var(--mute); }
+.mtg-when input[type=date], .mtg-when input[type=time] { font: inherit; font-size: 13px; padding: 2px 5px; border: 1px solid var(--rule); }
+.mtg-part { margin: 14px 0; }
+.mtg-part h4 { margin: 0 0 6px; font-size: 15px; }
+.mtg-qs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mtg-qs li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mtg-text .by { font-weight: 400; }
+.mtg-text textarea { width: 100%; }
+.mtg-old { margin: 10px 0; }
+.mtg-msg { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.check.was-sent { color: var(--mute); }
+/* green = filled */
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--mute); flex: none; }
+.done > .dot, .dot.inline { background: #3d9a50; border-color: #3d9a50; }
+/* the clients list */
+.list-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.list-tools .search { flex: 1 1 240px; }
+.list-tools select { width: auto; flex: none; font: inherit; font-size: 14px; padding: 4px 6px; border: 1px solid var(--rule); background: var(--card); }
+.clients .list-meta.mail { font-size: 12px; }
+.clients td.who { min-width: 180px; }
+.clients td.seen, .clients td.next-cell { white-space: nowrap; font-size: 14px; }
+.clients .staff-cell .mine { color: var(--olive); font-weight: 500; }
+.qchips { display: inline-flex; flex-wrap: wrap; gap: 4px; max-width: 340px; vertical-align: middle; }
+.qchip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 1px 7px; border: 1px solid var(--rule); background: var(--card); white-space: nowrap; }
+.qchip.done { border-color: #b9dcc0; }
+.qchip.more { color: var(--mute); }
+.qs-cell .count { margin-inline-end: 6px; }
+.th-hint { font-weight: 400; }
 .next-meet { color: var(--olive); }
 /* emails to the נועץ */
 .open-mail-row { align-items: center; gap: 10px; margin: -4px 0 12px; flex-wrap: wrap; }

@@ -234,47 +234,83 @@ function select(id, opts, value) {
   return el('select', { id: id }, opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
 }
 
+let onlyMine = false, clientSort = 'seen';
+const GENDER_WORD = { f: 'נועצת', m: 'נועץ' };
+// "היום 14:05" / "אתמול" / "3.10.2026"
+function fmtWhen(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(String(s || ''));
+  if (!m) return String(s || '');
+  const d = new Date(+m[1], +m[2] - 1, +m[3]), t0 = new Date(); t0.setHours(0, 0, 0, 0);
+  const days = Math.round((t0 - d) / 86400000);
+  if (days === 0) return 'היום' + (m[4] ? ' ' + m[4] : '');
+  if (days === 1) return 'אתמול' + (m[4] ? ' ' + m[4] : '');
+  return (+m[3]) + '.' + (+m[2]) + '.' + m[1];
+}
+const QCHIPS = 6; // more than this: "+N", the rest in the tooltip
+
 function drawClients(r, refresh) {
   const hadFocus = refresh && document.activeElement && document.activeElement.classList.contains('search');
   const y = window.scrollY;
-
-  const total = r.questionnaires.length;
   const groupShort = v => { const g = (r.groups || []).filter(x => x[0] === v)[0]; return g ? g[1].split(' · ')[0] : ''; };
-  const search = el('input', { type: 'search', class: 'search', placeholder: 'חיפוש לפי שם, אימייל או תגית', value: clientSearch, 'aria-label': 'חיפוש נועץ' });
+  const search = el('input', { type: 'search', class: 'search', placeholder: 'חיפוש לפי שם, אימייל, תגית או יועץ', value: clientSearch, 'aria-label': 'חיפוש נועץ' });
+  const mine = el('input', { type: 'checkbox', id: 'onlyMine', checked: onlyMine });
+  const sort = select('clientSort', [['seen', 'מיון: כניסה אחרונה'], ['created', 'מיון: הרשמה'], ['name', 'מיון: שם']], clientSort);
+  sort.setAttribute('aria-label', 'מיון');
   const tableBox = el('div');
   const count = el('p', { class: 'muted small' });
 
+  const chips = c => {
+    const qs = c.qs || [];
+    if (!qs.length) return el('span', { class: 'muted small' }, 'אין שאלונים פתוחים');
+    const shown = qs.slice(0, QCHIPS), rest = qs.slice(QCHIPS);
+    const all = qs.map(q => (q.done ? '✓ ' : '○ ') + q.title).join('\n');
+    return el('span', { class: 'qchips', title: all },
+      shown.map(q => el('span', { class: 'qchip' + (q.done ? ' done' : '') },
+        el('span', { class: 'dot', 'aria-label': q.done ? 'מולא' : 'טרם מולא' }), q.title)),
+      rest.length ? el('span', { class: 'qchip more' }, '+' + rest.length) : null);
+  };
+
   function draw() {
     const q = search.value.trim().toLowerCase();
-    clientSearch = search.value;
-    const list = r.clients.filter(c => !q || c.name.toLowerCase().includes(q) || c.email.includes(q) ||
-      (c.tags || []).some(x => x.toLowerCase().includes(q)));
-    count.textContent = list.length === r.clients.length ? r.clients.length + ' נועצים' : list.length + ' מתוך ' + r.clients.length + ' נועצים';
-    if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, r.clients.length ? 'אין תוצאות לחיפוש הזה.' : 'עדיין אין נועצים רשומים.')); return; }
-    const rows = list.map(c => el('tr', { class: 'clickable', tabindex: '0',
-      onmouseenter: () => loadAhead(c.email), onfocus: () => loadAhead(c.email),
-      onclick: () => showClient(c.email),
-      onkeydown: (e) => { if (e.key === 'Enter') showClient(c.email); } },
-      el('td', {}, el('b', {}, c.name || '—'),
-        c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נרשם/ה') : null,
-        c.group || (c.tags || []).length ? el('div', { class: 'list-meta' }, [groupShort(c.group)].concat(c.tags || []).filter(Boolean).join(' · ')) : null,
-        c.next && c.next.date ? el('div', { class: 'list-meta next-meet' }, 'פגישה ' + c.next.n + ': ' + fmtDay(c.next.date) + (c.next.time ? ' · ' + c.next.time : '')) : null),
-      el('td', { dir: 'ltr', class: 'mail' }, c.email),
-      el('td', {}, c.created || '—'),
-      el('td', {}, el('span', { class: 'count' + (c.sent.length ? ' some' : '') }, c.sent.length + ' / ' + total),
-        c.sent.length ? el('span', { class: 'sent-list' }, ' ' + c.sent.map(s => s.title).join(' · ')) : null)));
+    clientSearch = search.value; onlyMine = mine.checked; clientSort = sort.value;
+    let list = r.clients.filter(c => (!onlyMine || c.staff === r.myEmail) && (!q || (c.name || '').toLowerCase().includes(q) || c.email.includes(q) ||
+      (c.staffName || '').toLowerCase().includes(q) || (c.tags || []).some(x => x.toLowerCase().includes(q))));
+    const key = c => clientSort === 'seen' ? (c.lastSeen || '') : clientSort === 'created' ? (c.created || '') : '';
+    list = list.slice().sort((a, b) => clientSort === 'name' ? (a.name || '').localeCompare(b.name || '', 'he') :
+      key(b) > key(a) ? 1 : key(b) < key(a) ? -1 : 0);
+    const base = onlyMine ? r.clients.filter(c => c.staff === r.myEmail).length : r.clients.length;
+    count.textContent = (list.length === base ? base : list.length + ' מתוך ' + base) + ' נועצים' + (onlyMine ? ' שלי' : '');
+    if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, r.clients.length ? 'אין תוצאות.' : 'עדיין אין נועצים רשומים.')); return; }
+    const rows = list.map(c => {
+      const done = (c.qs || []).filter(x => x.done).length;
+      return el('tr', { class: 'clickable', tabindex: '0',
+        onmouseenter: () => loadAhead(c.email), onfocus: () => loadAhead(c.email),
+        onclick: () => showClient(c.email),
+        onkeydown: (e) => { if (e.key === 'Enter') showClient(c.email); } },
+        el('td', { class: 'who' }, el('b', {}, c.name || '—'),
+          c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נרשם/ה') :
+            c.privacy === false ? el('span', { class: 'badge wait' }, 'טרם אישר/ה פרטיות') : null,
+          el('div', { class: 'list-meta' }, [GENDER_WORD[c.gender], groupShort(c.group), c.age ? 'גיל ' + c.age : ''].concat(c.tags || []).filter(Boolean).join(' · ')),
+          el('div', { class: 'list-meta mail', dir: 'ltr' }, c.email)),
+        el('td', { class: 'staff-cell' }, c.staffName ? el('span', { class: c.staff === r.myEmail ? 'mine' : '' }, c.staff === r.myEmail ? 'אני' : c.staffName) : el('span', { class: 'muted' }, '—')),
+        el('td', { class: 'seen' }, c.registered === false ? el('span', { class: 'muted' }, '—') : c.lastSeen ? fmtWhen(c.lastSeen) : el('span', { class: 'muted small' }, 'נרשם/ה ' + fmtWhen(c.created))),
+        el('td', { class: 'qs-cell' }, (c.qs || []).length ? el('span', { class: 'count' + (done ? ' some' : '') }, done + '/' + c.qs.length) : null, chips(c)),
+        el('td', { class: 'next-cell' }, c.next && c.next.date ? el('span', {}, 'פגישה ' + c.next.n + ' · ' + fmtDay(c.next.date) + (c.next.time ? ' · ' + c.next.time : '')) :
+          c.next ? el('span', { class: 'muted small' }, 'פגישה ' + c.next.n + ' · לא נקבע') : el('span', { class: 'muted small' }, 'הפגישות הסתיימו')));
+    });
     tableBox.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'staff clients' },
-      el('thead', {}, el('tr', {}, el('th', {}, 'שם'), el('th', {}, 'אימייל'), el('th', {}, 'נרשם/ה'), el('th', {}, 'שאלונים שנשלחו'))),
+      el('thead', {}, el('tr', {}, el('th', {}, 'נועץ/ת'), el('th', {}, 'יועץ/ת'), el('th', {}, 'כניסה אחרונה'),
+        el('th', {}, 'שאלונים', el('span', { class: 'muted small th-hint' }, ' · ', el('span', { class: 'dot inline' }), ' מולא')), el('th', {}, 'הפגישה הבאה'))),
       el('tbody', {}, rows))));
   }
-  search.addEventListener('input', draw);
+  search.addEventListener('input', draw); mine.addEventListener('change', draw); sort.addEventListener('change', draw);
   draw();
 
   render(menu('clients'),
     el('div', { class: 'title-row' }, el('h1', {}, 'נועצים'), newCaseButton(r)),
     el('p', { class: 'sub' }, 'בחרו נועץ/ת כדי לפתוח את התיק.'),
     newCaseBox,
-    el('div', { class: 'card' }, search, count, tableBox));
+    el('div', { class: 'card' }, el('div', { class: 'list-tools' }, search, el('label', { class: 'check' }, mine, ' רק שלי'), sort), count, tableBox));
   if (refresh) { window.scrollTo(0, y); if (hadFocus) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); } }
 }
 
@@ -293,7 +329,7 @@ async function showClient(email) {
 }
 
 let currentClient = null; // the email of the תיק on screen (refreshed when you come back to this tab)
-let caseTab = 'claude';
+let caseTab = 'meet';
 
 function drawClient(r, refresh) {
   const y = window.scrollY;
@@ -314,26 +350,28 @@ function drawClient(r, refresh) {
   const intake = r.questionnaires.filter(q => q.id === 'intake' && q.state)[0];
   const suggested = !ci.group && intake ? groupFromIntake(intake.state) : '';
 
-  const tabs = { claude: 'Claude', notes: 'הרשמים שלי' };
+  const tabs = { meet: 'הפגישות', claude: 'Claude', notes: 'הרשמים שלי' };
   const tabBox = el('div', { class: 'case-tab' });
   const tabBtns = Object.keys(tabs).map(k => el('button', { type: 'button', class: 'tab' + (k === caseTab ? ' on' : ''), 'data-tab': k,
     'aria-pressed': k === caseTab ? 'true' : 'false', onclick: () => { caseTab = k; drawTab(); } }, tabs[k] +
     (k === 'notes' && r.entries && r.entries.notes.length ? ' (' + r.entries.notes.length + ')' : '')));
   function drawTab() {
     tabBtns.forEach(b => { const on = b.dataset.tab === caseTab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
-    tabBox.replaceChildren(caseTab === 'notes' ? notesSection(r) : claudeSection(r));
+    tabBox.replaceChildren(caseTab === 'notes' ? notesSection(r) : caseTab === 'meet' ? meetingsSection(r) : claudeSection(r));
   }
   drawTab();
 
-  const draft = refresh && document.getElementById('n_text') ? document.getElementById('n_text').value : '';
+  // text being written survives a refresh of the page (the note, and the meeting fields)
+  const drafts = {};
+  if (refresh) document.querySelectorAll('textarea[data-keep]').forEach(x => { if (x.value !== x.defaultValue) drafts[x.id] = x.value; });
   render(menu('clients'), backLink(),
     el('h1', {}, c.name || c.email),
     el('p', { class: 'sub case-facts' }, facts.join(' · ') || 'עוד אין פרטים'),
-    el('p', { class: 'muted small case-contact' }, el('span', { dir: 'ltr' }, c.email), ci.phone ? el('span', {}, ' · ', el('span', { dir: 'ltr' }, ci.phone)) : null,
+    el('p', { class: 'muted small case-contact' }, ci.staff ? el('span', { class: 'case-staff' }, 'יועץ/ת מלווה: ' + (label(L.staff, ci.staff) || ci.staff) + ' · ') : null,
+      el('span', { dir: 'ltr' }, c.email), ci.phone ? el('span', {}, ' · ', el('span', { dir: 'ltr' }, ci.phone)) : null,
       c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נרשם/ה לאתר') : ' · נרשם/ה ' + (c.created || '—'),
       ci.consent ? ' · הסכמה לשמירת מידע ' + ci.consentAt : '',
       ci.privacyAt ? ' · אישר/ה את מדיניות הפרטיות ' + ci.privacyAt : (c.registered === false ? '' : ' · טרם אישר/ה את מדיניות הפרטיות')),
-    meetingsCard(r),
     caseDetails(r, L),
     !ci.group ? el('div', { class: 'card group-pick' }, el('b', {}, 'קבוצה: '), el('span', { class: 'muted' }, suggested ? 'הצעה לפי שאלון הכניסה: ' : 'עוד לא נבחרה. '),
       el('div', { class: 'row' }, L.groups.map(([v, l]) => el('button', { type: 'button', class: 'btn small ' + (v === suggested ? 'primary' : 'secondary'),
@@ -346,7 +384,7 @@ function drawClient(r, refresh) {
     cvRow(r.cv, c),
     el('div', { class: 'tabs', role: 'group', 'aria-label': 'חלקי התיק' }, tabBtns),
     tabBox);
-  if (draft && document.getElementById('n_text')) document.getElementById('n_text').value = draft; // a note being written survives a refresh
+  Object.keys(drafts).forEach(id => { const x = document.getElementById(id); if (x) x.value = drafts[id]; });
   window.scrollTo(0, refresh ? y : 0);
 }
 
@@ -360,32 +398,121 @@ function groupFromIntake(state) {
 const fmtDay = d => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d || '')); return m ? (+m[3]) + '.' + (+m[2]) + '.' + m[1] : String(d || ''); };
 let currentReminders = {};
 
-// ---------- the four meetings: which were held, and when the next one is ----------
-function meetingsCard(r) {
-  const c = r.client, ms = ((r.caseInfo || {}).meetings || []).slice(0, 4);
-  while (ms.length < 4) ms.push({ done: false, date: '', time: '' });
+// ---------- the meetings: what was filled before each, what was said and decided, what to fill next ----------
+const ORD = ['ראשונה', 'שנייה', 'שלישית', 'רביעית', 'חמישית', 'שישית', 'שביעית', 'שמינית', 'תשיעית', 'עשירית', 'אחת־עשרה', 'שתים־עשרה'];
+const MEET_MAX = 12;
+const MEET_TEXT = [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות והמשך', 'מה סוכם, ומה הכיוון להמשך'],
+  ['task', 'משימה לנועץ/ת', 'מה הנועץ/ת עושה עד הפגישה הבאה']];
+let meetSel = {}, meetFlash = null; // the meeting on screen per תיק; the message after a save
+
+function meetingsOf(r) {
+  const ms = ((r.caseInfo || {}).meetings || []).map(m => Object.assign({ done: false, date: '', time: '', given: [] }, m));
+  while (ms.length < 4) ms.push({ done: false, date: '', time: '', given: [] });
+  return ms;
+}
+
+function meetingsSection(r) {
+  const c = r.client, ms = meetingsOf(r);
   const nextI = ms.findIndex(m => !m.done);
-  const msg = el('span', { class: 'saved-note', 'aria-live': 'polite' });
-  const rows = ms.map((m, i) => {
-    const done = el('input', { type: 'checkbox', checked: m.done, 'aria-label': 'פגישה ' + (i + 1) + ' התקיימה' });
-    const date = el('input', { type: 'date', value: m.date || '', 'aria-label': 'תאריך פגישה ' + (i + 1) });
-    const time = el('input', { type: 'time', value: m.time || '', 'aria-label': 'שעה' });
-    const step = el('div', { class: 'mtg' + (m.done ? ' done' : '') + (i === nextI ? ' next' : '') },
-      el('div', { class: 'mtg-n' }, String(i + 1)),
-      el('div', { class: 'mtg-body' },
-        el('b', {}, 'פגישה ' + ['ראשונה', 'שנייה', 'שלישית', 'רביעית'][i]),
-        el('div', { class: 'mtg-state small' }, m.done ? 'התקיימה' + (m.date ? ' · ' + fmtDay(m.date) : '') : i === nextI ? (m.date ? 'הבאה · ' + fmtDay(m.date) + (m.time ? ' · ' + m.time : '') : 'הבאה · עוד לא נקבע מועד') : ''),
-        el('div', { class: 'mtg-edit' }, el('label', { class: 'check' }, done, ' התקיימה'), date, time)));
-    step._get = () => ({ done: done.checked, date: date.value, time: time.value });
-    return step;
+  let n = meetSel[c.email];
+  if (!n || n > ms.length) n = nextI === -1 ? ms.length : nextI + 1;
+  const strip = el('div', { class: 'mtg-strip', role: 'group', 'aria-label': 'הפגישות' },
+    ms.map((m, i) => el('button', { type: 'button', 'data-n': String(i + 1),
+      class: 'mtg-pill' + (m.done ? ' done' : '') + (i === nextI ? ' next' : '') + (i + 1 === n ? ' on' : ''),
+      'aria-pressed': i + 1 === n ? 'true' : 'false', title: m.date ? fmtDay(m.date) + (m.time ? ' · ' + m.time : '') : '',
+      onclick: () => { meetSel[c.email] = i + 1; meetFlash = null; drawClient(r, true); } },
+      el('span', { class: 'mtg-n' }, m.done ? '✓' : String(i + 1)),
+      el('span', { class: 'mtg-pl' }, i === nextI ? 'הבאה' + (m.date ? ' · ' + fmtDay(m.date) : '') : m.done ? (m.date ? fmtDay(m.date) : 'התקיימה') : (m.date ? fmtDay(m.date) : '')))),
+    ms.length < MEET_MAX ? el('button', { type: 'button', class: 'link-btn small mtg-add', onclick: async (e) => {
+      const res = await withBusy(e.currentTarget, () => api('meetSave', { email: c.email, n: ms.length + 1, given: [] }));
+      if (!res.ok) return;
+      meetSel[c.email] = ms.length + 1; afterMeetSave(r, res);
+    } }, '+ פגישה נוספת') : null);
+  return el('div', { class: 'meet-sec' }, strip, meetingCard(r, ms, n));
+}
+
+function afterMeetSave(r, res) {
+  r.caseInfo = Object.assign({}, r.caseInfo, res.caseInfo); r.entries = res.entries;
+  (res.opened || []).forEach(id => r.questionnaires.forEach(q => { if (q.id === id) q.open = true; }));
+  cachePut('client_' + r.client.email, r); cacheDrop('list');
+  drawClient(r, true);
+}
+
+function meetingCard(r, ms, n) {
+  const c = r.client, m = ms[n - 1], E = r.entries || {}, T = (E.meetTexts || {})[n] || {};
+  const byId = {}; r.questionnaires.forEach(q => { byId[q.id] = q; });
+  const msg = el('div', { class: 'mtg-msg', 'aria-live': 'polite' });
+  const done = el('input', { type: 'checkbox', id: 'm_done', checked: m.done });
+  const date = el('input', { type: 'date', id: 'm_date', value: m.date || '', 'aria-label': 'תאריך' });
+  const time = el('input', { type: 'time', id: 'm_time', value: m.time || '', 'aria-label': 'שעה' });
+
+  // what was filled for this meeting: what was decided at the one before (for the first: all that was open)
+  const prev = n > 1 ? ms[n - 2] : null;
+  const forThis = prev ? prev.given.map(id => byId[id]).filter(Boolean) : r.questionnaires.filter(q => q.open || q.sentAt);
+  const filled = el('div', { class: 'mtg-part' }, el('h4', {}, 'מה מולא לקראת הפגישה'),
+    forThis.length ? el('ul', { class: 'mtg-qs' }, forThis.map(q => el('li', { class: q.sentAt ? 'done' : '' },
+      el('span', { class: 'dot' }), el('span', { class: 'qt' }, q.title),
+      q.sentAt ? el('span', { class: 'muted small' }, ' · ' + fmtWhen(q.sentAt)) : el('span', { class: 'badge wait' }, q.open ? 'טרם נשלח' : 'סגור · טרם נשלח'),
+      q.sentAt ? el('button', { type: 'button', class: 'link-btn small', onclick: () => openAnswers(q, c) }, 'צפייה בתשובות') : null)))
+      : el('p', { class: 'muted small' }, prev ? 'בפגישה ה' + ORD[n - 2] + ' לא נבחרו שאלונים.' : 'עוד לא נפתחו שאלונים.'));
+
+  const areas = MEET_TEXT.map(([f, lab, ph]) => {
+    const x = el('textarea', { id: 'm_' + f, 'data-keep': '1', rows: f === 'summary' ? '5' : '3', placeholder: ph }, (T[f] || {}).text || '');
+    return el('label', { class: 'field mtg-text' }, el('span', {}, lab,
+      T[f] && T[f].text ? el('span', { class: 'muted small by' }, ' · ' + (T[f].byName || '') + ', ' + fmtWhen(T[f].at)) : null), x);
   });
-  const save = el('button', { type: 'button', class: 'btn secondary small', onclick: async () => {
-    msg.textContent = 'שומר…';
-    await withBusy(save, () => saveCase(c.email, { meetings: rows.map(x => x._get()) }, null));
-  } }, 'שמירת הפגישות');
-  return el('div', { class: 'card meetings' },
-    el('div', { class: 'row spread' }, el('h3', {}, 'הפגישות'), el('span', {}, msg, save)),
-    el('div', { class: 'mtg-row' }, rows));
+
+  // the questionnaires to fill before the next meeting (saving opens them for the נועץ)
+  const ci = r.caseInfo || {};
+  const fits = q => !(q.groups && q.groups.length) || q.groups.indexOf(ci.group) !== -1 || m.given.indexOf(q.id) !== -1;
+  const giveBox = q => el('label', { class: 'check' + (q.sentAt ? ' was-sent' : '') },
+    el('input', { type: 'checkbox', value: q.id, checked: m.given.indexOf(q.id) !== -1 }), ' ' + q.title,
+    q.sentAt ? el('span', { class: 'muted small' }, ' (כבר מולא)') : q.open && m.given.indexOf(q.id) === -1 ? el('span', { class: 'muted small' }, ' (פתוח)') : null);
+  const otherQs = r.questionnaires.filter(q => q.id && !fits(q));
+  const nextPart = el('div', { class: 'mtg-part' }, el('h4', {}, 'שאלונים לפגישה הבאה'),
+    el('p', { class: 'hint' }, 'מה שמסמנים נפתח לנועץ/ת בשמירה.'),
+    el('div', { class: 'checks' }, r.questionnaires.filter(q => q.id && fits(q)).map(giveBox)),
+    otherQs.length ? el('details', { class: 'more-give' }, el('summary', { class: 'small' }, 'שאלונים לקבוצות אחרות (' + otherQs.length + ')'),
+      el('div', { class: 'checks' }, otherQs.map(giveBox))) : null);
+
+  const old = ((E.notes || []).filter(x => x.sub === 'סיכום פגישה ' + ORD[n - 1]));
+  const oldPart = old.length ? el('details', { class: 'mtg-old' }, el('summary', {}, 'סיכום קודם מ"הרשמים שלי" (' + old.length + ')'),
+    old.map(x => el('div', { class: 'note' }, el('div', { class: 'note-head' }, el('span', { class: 'muted small' }, x.at + ' · ' + x.byName)), el('div', { class: 'note-text' }, x.text)))) : null;
+
+  if (meetFlash && meetFlash.email === c.email && meetFlash.n === n) {
+    msg.append(el('span', { class: 'saved-note' }, meetFlash.text));
+    if (meetFlash.opened.length) {
+      const mb = el('button', { type: 'button', class: 'btn secondary small', onclick: async () => {
+        const res = await withBusy(mb, () => api('mailOpened', { email: c.email }));
+        if (!res.ok) { if (!res.handled) msg.replaceChildren(msgBox(res.message || 'המייל לא נשלח')); return; }
+        meetFlash = null; cacheDrop('client_' + c.email);
+        msg.replaceChildren(el('span', { class: 'saved-note' }, 'נשלח מייל על: ' + res.sentAbout.join(', ')));
+      } }, 'שליחת מייל לנועץ על השאלונים הפתוחים');
+      msg.append(' ', mb);
+    }
+  }
+
+  const save = el('button', { type: 'button', class: 'btn primary', id: 'm_save', onclick: async () => {
+    msg.replaceChildren();
+    const texts = {}; MEET_TEXT.forEach(([f]) => { texts[f] = document.getElementById('m_' + f).value; });
+    const given = [...nextPart.querySelectorAll('input:checked')].map(x => x.value);
+    const res = await withBusy(save, () => api('meetSave', { email: c.email, n: n, done: done.checked, date: date.value, time: time.value, given: given, texts: texts }));
+    if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
+    const titles = (res.opened || []).map(id => (byId[id] || {}).title || id);
+    meetSel[c.email] = n; // stay on this meeting after the save
+    meetFlash = { email: c.email, n: n, opened: res.opened || [], text: 'נשמר' + (titles.length ? '. נפתחו לנועץ/ת: ' + titles.join(', ') : '') };
+    MEET_TEXT.forEach(([f]) => { const x = document.getElementById('m_' + f); if (x) x.defaultValue = x.value; });
+    afterMeetSave(r, res);
+  } }, 'שמירת הפגישה');
+
+  return el('div', { class: 'card mtg-card' + (m.done ? ' done' : '') },
+    el('div', { class: 'mtg-head' }, el('h3', {}, 'פגישה ' + (ORD[n - 1] || n)),
+      el('span', { class: 'mtg-when' }, el('label', { class: 'check' }, done, ' התקיימה'), date, time)),
+    filled,
+    areas,
+    nextPart,
+    oldPart,
+    el('div', { class: 'row' }, save, msg));
 }
 
 // ---------- emails to the נועץ ----------
@@ -422,7 +549,8 @@ function caseDetails(r, L) {
     kind: select('c_kind', [['', 'לא נבחר']].concat(L.kinds), ci.kind || ''),
     group: select('c_group', [['', 'לא נבחרה']].concat(L.groups), ci.group || ''),
     note: el('textarea', { id: 'c_note', rows: '3' }, ci.note || ''),
-    consent: el('input', { type: 'checkbox', id: 'c_consent', checked: !!ci.consent })
+    consent: el('input', { type: 'checkbox', id: 'c_consent', checked: !!ci.consent }),
+    staff: select('c_staff', [['', 'לא נבחר/ה']].concat(ci.staff && !(L.staff || []).some(s => s[0] === ci.staff) ? [[ci.staff, ci.staff]] : []).concat(L.staff || []), ci.staff || '')
   };
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירת הפרטים');
   return el('details', { class: 'case-edit' }, el('summary', {}, 'עריכת פרטים'),
@@ -430,9 +558,9 @@ function caseDetails(r, L) {
       e.preventDefault(); msg.replaceChildren();
       await withBusy(btn, () => saveCase(c.email, { name: f.name.value, gender: f.gender.value, phone: f.phone.value, fac: f.fac.value,
         tags: f.tags.value, age: f.age.value, years: f.years.value, kind: f.kind.value, group: f.group.value, note: f.note.value,
-        consent: f.consent.checked }, msg));
+        consent: f.consent.checked, staff: f.staff.value }, msg));
     } },
-      el('div', { class: 'grid2' }, field('שם', f.name), field('נועצת או נועץ', f.gender), field('טלפון', f.phone), field('מי זה/זו', f.kind),
+      el('div', { class: 'grid2' }, field('שם', f.name), field('יועץ/ת מלווה', f.staff), field('נועצת או נועץ', f.gender), field('טלפון', f.phone), field('מי זה/זו', f.kind),
         field('קבוצה', f.group), field('תחום / פקולטה', f.fac), field('תגיות (מפרידים בפסיק)', f.tags),
         el('div', { class: 'grid2' }, field('גיל', f.age), field('שנות ניסיון', f.years))),
       field('הערה כללית', f.note),
@@ -444,12 +572,13 @@ function caseDetails(r, L) {
 function notesSection(r) {
   const c = r.client, L = r.lists, notes = (r.entries && r.entries.notes) || [];
   const msg = el('div');
-  const kind = radios('n_kind', L.noteKinds.map(k => [k, k]), L.noteKinds[0]);
+  const kinds = L.noteKinds.filter(k => k !== 'סיכום פגישה');
+  const kind = radios('n_kind', kinds.map(k => [k, k]), kinds[0]);
   const meetsDone = notes.filter(n => /^סיכום פגישה/.test(n.sub)).length;
   const meet = select('n_meet', L.meets.map(m => [m, m]), L.meets[Math.min(meetsDone, L.meets.length - 1)]);
   const meetBox = el('div', { class: 'field meet', hidden: true }, el('span', {}, 'איזו פגישה?'), meet,
     el('p', { class: 'hint' }, 'מצב השאלונים עד היום נכנס לסיכום אוטומטית.'));
-  const text = el('textarea', { id: 'n_text', rows: '5', placeholder: 'מה עלה? מה הרגשת? מה סוכם?' });
+  const text = el('textarea', { id: 'n_text', 'data-keep': '1', rows: '5', placeholder: 'מה עלה? מה הרגשת? מה סוכם?' });
   kind.node.addEventListener('change', () => { meetBox.hidden = kind.value() !== 'סיכום פגישה'; });
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירה');
   const list = notes.length ? notes.map(n => el('div', { class: 'note' },
@@ -590,25 +719,27 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && currentClient && app.querySelector('.case-tab')) showClient(currentClient);
 });
 
-// One questionnaire on the נועץ page: title, "פתוח לנועץ" switch, status, and the answers button when sent
+// One questionnaire on the נועץ page: title, the "פתוח למילוי / סגור" switch, status, and the answers button when sent
 function questionnaireRow(q, client) {
   const row = el('div', { class: 'qblock' });
   const saved = el('span', { class: 'saved-note', 'aria-live': 'polite' });
-  const input = el('input', { type: 'checkbox', role: 'switch', checked: q.open, 'aria-label': 'פתוח לנועץ – ' + q.title });
+  const input = el('input', { type: 'checkbox', role: 'switch', checked: q.open, 'aria-label': 'פתוח למילוי – ' + q.title });
+  const swLabel = el('span', { class: 'switch-label' });
   const status = el('span', { class: 'qside' });
 
   function paint() {
+    swLabel.textContent = q.open ? 'פתוח למילוי' : 'סגור';
     row.classList.toggle('pending', !q.sentAt);
     row.classList.toggle('closed', !q.open);
     const parts = [];
     if (q.sentAt) {
       parts.push(el('span', { class: 'badge sent' }, sentLabel(q)));
-      if (!q.open) parts.push(el('span', { class: 'badge wait' }, 'סגור · לצפייה בלבד אצל הנועץ'));
+      if (!q.open) parts.push(el('span', { class: 'badge wait' }, 'לצפייה בלבד אצל הנועץ'));
       parts.push(el('button', { type: 'button', class: 'btn primary small open-answers', onclick: () => openAnswers(q, client) }, 'צפייה בתשובות'));
       if (q.id === 'intake' && q.state) parts.push(el('button', { type: 'button', class: 'btn secondary small open-analysis', onclick: () => openAnswers(q, client, 'analysis') }, 'ניתוח מלא'));
     } else {
-      parts.push(el('span', { class: 'badge wait' }, q.open ? 'פתוח · טרם נשלח' : 'סגור'));
       if (q.open) {
+        parts.push(el('span', { class: 'badge wait' }, 'טרם נשלח'));
         const last = currentReminders[q.id];
         const rb = el('button', { type: 'button', class: 'btn secondary small remind', title: last ? 'תזכורת אחרונה: ' + last : '', onclick: async () => {
           const res = await withBusy(rb, () => api('remind', { email: client.email, id: q.id }));
@@ -639,7 +770,7 @@ function questionnaireRow(q, client) {
   row.append(el('div', { class: 'qhead' },
     el('span', { class: 'qtitle' }, q.title),
     el('span', { class: 'qcontrols' },
-      el('label', { class: 'switch' }, input, el('span', { class: 'track' }), el('span', { class: 'switch-label' }, 'פתוח לנועץ')),
+      el('label', { class: 'switch' }, input, el('span', { class: 'track' }), swLabel),
       saved, status)));
   paint();
   return row;
