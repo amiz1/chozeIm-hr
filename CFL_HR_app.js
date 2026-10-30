@@ -274,7 +274,6 @@ function fmtWhen(s) {
   if (days === 1) return 'אתמול' + (m[4] ? ' ' + m[4] : '');
   return (+m[3]) + '.' + (+m[2]) + '.' + m[1];
 }
-const QCHIPS = 6; // more than this: "+N", the rest in the tooltip
 
 function drawClients(r, refresh) {
   const hadFocus = refresh && document.activeElement && document.activeElement.classList.contains('search');
@@ -290,16 +289,23 @@ function drawClients(r, refresh) {
   const tableBox = el('div');
   const count = el('p', { class: 'muted small' });
 
-  const chips = c => {
-    const qs = c.qs || [];
-    if (!qs.length) return el('span', { class: 'muted small' }, 'אין שאלונים פתוחים');
-    const shown = qs.slice(0, QCHIPS), rest = qs.slice(QCHIPS);
-    const all = qs.map(q => (q.done ? '✓ ' : '○ ') + q.title).join('\n');
-    return el('span', { class: 'qchips', title: all },
-      shown.map(q => el('span', { class: 'qchip' + (q.done ? ' done' : '') },
-        el('span', { class: 'dot', 'aria-label': q.done ? 'מולא' : 'טרם מולא' }), q.title)),
-      rest.length ? el('span', { class: 'qchip more' }, '+' + rest.length) : null);
+  // "הצעד הבא (2)": the group's name in two words, its number and letter in parentheses
+  const groupLabel = v => {
+    const g = (r.groups || []).filter(x => x[0] === v)[0]; if (!g) return '';
+    const parts = g[1].split(' · '), first = parts[0].split(' ');
+    const name = parts.length > 2 ? parts[1] : first.slice(1).join(' ') || parts[1] || '';
+    return name.split(' ').slice(0, 2).join(' ') + ' (' + first[0] + ')';
   };
+  // three dots, always: filled · opened and waiting · not opened yet
+  const dots = c => {
+    const qs = c.qs || [], done = qs.filter(q => q.done), wait = qs.filter(q => !q.done), rest = c.notYet || [];
+    const one = (cls, list, word) => el('span', { class: 'qd ' + cls, title: word + (list.length ? ':\n' + list.join('\n') : '') },
+      el('span', { class: 'dot' }), el('span', { class: 'qn' }, String(list.length)));
+    return el('span', { class: 'qdots', 'aria-label': done.length + ' מולאו, ' + wait.length + ' ממתינים, ' + rest.length + ' טרם נשלחו' },
+      one('done', done.map(q => q.title), 'מולאו'), one('wait', wait.map(q => q.title), 'נשלחו וממתינים'), one('rest', rest, 'טרם נשלחו'));
+  };
+  const nextText = c => c.next && c.next.date ? fmtDay(c.next.date) + (c.next.time ? ' בשעה ' + c.next.time : '')
+    : c.meetingsOver ? 'הפגישות הסתיימו' : 'טרם נקבע';
 
   function draw() {
     const q = search.value.trim().toLowerCase();
@@ -313,27 +319,23 @@ function drawClients(r, refresh) {
     count.textContent = (list.length === base ? base : list.length + ' מתוך ' + base) + ' נועצים' + (onlyMine ? ' שלי' : '') + (showArchive ? ' בארכיון' : '') +
       (r.admin ? '' : ' · מוצגים הנועצים שלך ואלה שלא שויכו');
     if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, showArchive ? 'אין נועצים בארכיון.' : r.clients.length ? 'אין תוצאות.' : 'עדיין אין נועצים רשומים.')); return; }
-    const rows = list.map(c => {
-      const done = (c.qs || []).filter(x => x.done).length;
-      return el('tr', { class: 'clickable', tabindex: '0',
+    const rows = list.map(c => el('tr', { class: 'clickable', tabindex: '0',
         onmouseenter: () => loadAhead(c.email), onfocus: () => loadAhead(c.email),
         onclick: () => showClient(c.email),
         onkeydown: (e) => { if (e.key === 'Enter') showClient(c.email); } },
-        el('td', { class: 'who' }, el('b', {}, c.name || '—'),
-          c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נרשם/ה') :
-            c.privacy === false ? el('span', { class: 'badge wait' }, 'טרם אישר/ה פרטיות') : null,
-          el('div', { class: 'list-meta' }, [GENDER_WORD[c.gender], groupShort(c.group), c.age ? 'גיל ' + c.age : ''].concat(c.tags || []).filter(Boolean).join(' · ')),
-          el('div', { class: 'list-meta mail', dir: 'ltr' }, c.email)),
-        el('td', { class: 'staff-cell' }, c.staffName ? el('span', { class: c.staff === r.myEmail ? 'mine' : '' }, c.staff === r.myEmail ? 'אני' : c.staffName) : el('span', { class: 'muted small' }, 'לא שויך')),
-        el('td', { class: 'seen' }, c.registered === false ? el('span', { class: 'muted' }, '—') : c.lastSeen ? fmtWhen(c.lastSeen) : el('span', { class: 'muted small' }, 'נרשם/ה ' + fmtWhen(c.created))),
-        el('td', { class: 'qs-cell' }, (c.qs || []).length ? el('span', { class: 'count' + (done ? ' some' : '') }, done + '/' + c.qs.length) : null, chips(c)),
-        el('td', { class: 'next-cell' }, c.next && c.next.date ? el('span', {}, 'פגישה ' + c.next.n + ' · ' + fmtDay(c.next.date) + (c.next.time ? ' · ' + c.next.time : '')) :
-          c.next ? el('span', { class: 'muted small' }, 'פגישה ' + c.next.n + ' · לא נקבע') : el('span', { class: 'muted small' }, 'הפגישות הסתיימו')));
-    });
+        el('td', { class: 'who', title: c.email }, el('b', {}, c.name || c.email), c.age ? el('span', { class: 'muted' }, ' (' + c.age + ')') : null),
+        el('td', { class: 'grp' }, groupLabel(c.group) || el('span', { class: 'muted' }, '—')),
+        el('td', { class: 'staff-cell' }, c.staffName ? el('span', { class: c.staff === r.myEmail ? 'mine' : '' }, c.staff === r.myEmail ? 'אני' : c.staffName) : el('span', { class: 'muted' }, 'לא שויך')),
+        el('td', { class: 'seen' }, c.registered === false ? el('span', { class: 'muted' }, 'טרם נרשם/ה') : c.lastSeen ? fmtWhen(c.lastSeen) : el('span', { class: 'muted' }, '—')),
+        el('td', { class: 'qs-cell' }, dots(c)),
+        el('td', { class: 'next-cell' + (c.next && c.next.date ? '' : ' muted'), title: c.next ? 'פגישה ' + c.next.n : '' }, nextText(c))));
     tableBox.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'staff clients' },
-      el('thead', {}, el('tr', {}, el('th', {}, 'נועץ/ת'), el('th', {}, 'יועץ/ת'), el('th', {}, 'כניסה אחרונה'),
-        el('th', {}, 'שאלונים', el('span', { class: 'muted small th-hint' }, ' · ', el('span', { class: 'dot inline' }), ' מולא')), el('th', {}, 'הפגישה הבאה'))),
-      el('tbody', {}, rows))));
+      el('thead', {}, el('tr', {}, el('th', {}, 'שם מלא (גיל)'), el('th', {}, 'קבוצה'), el('th', {}, 'יועץ/ת'), el('th', {}, 'כניסה אחרונה'),
+        el('th', { class: 'qs-head' }, 'שאלונים'),
+        el('th', {}, 'הפגישה הבאה'))),
+      el('tbody', {}, rows))),
+      el('p', { class: 'qlegend' }, 'שאלונים: ', el('span', { class: 'qd done' }, el('span', { class: 'dot' }), 'מולאו'),
+        el('span', { class: 'qd wait' }, el('span', { class: 'dot' }), 'נשלחו וממתינים'), el('span', { class: 'qd rest' }, el('span', { class: 'dot' }), 'טרם נשלחו')));
   }
   search.addEventListener('input', draw); mine.addEventListener('change', draw); sort.addEventListener('change', draw); arch.addEventListener('change', draw);
   draw();

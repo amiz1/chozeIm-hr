@@ -282,15 +282,7 @@ textarea:focus, select:focus { outline: 2px solid var(--olive); outline-offset: 
 .list-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .list-tools .search { flex: 1 1 240px; }
 .list-tools select { width: auto; flex: none; font: inherit; font-size: 14px; padding: 4px 6px; border: 1px solid var(--rule); background: var(--card); }
-.clients .list-meta.mail { font-size: 12px; }
-.clients td.who { min-width: 180px; }
-.clients td.seen, .clients td.next-cell { white-space: nowrap; font-size: 14px; }
 .clients .staff-cell .mine { color: var(--olive); font-weight: 500; }
-.qchips { display: inline-flex; flex-wrap: wrap; gap: 4px; max-width: 340px; vertical-align: middle; }
-.qchip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 1px 7px; border: 1px solid var(--rule); background: var(--card); white-space: nowrap; }
-.qchip.done { border-color: #b9dcc0; }
-.qchip.more { color: var(--mute); }
-.qs-cell .count { margin-inline-end: 6px; }
 .th-hint { font-weight: 400; }
 .next-meet { color: var(--olive); }
 /* emails to the נועץ */
@@ -329,3 +321,18 @@ dialog.del-modal { height: auto; max-height: 90vh; max-width: 560px; }
 .mtg-part.prep textarea { width: 100%; background: var(--card); }
 .mtg-part.prep .hint { margin: 2px 0 8px; }
 .prep-msg { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* the נועצים table: one line per נועץ, every cell aligned in the middle */
+table.clients td { vertical-align: middle; white-space: nowrap; font-size: 15px; }
+table.clients td.who b { font-weight: 700; }
+table.clients td.who { white-space: normal; min-width: 150px; }
+table.clients .muted { color: var(--mute); }
+.qdots { display: inline-flex; gap: 16px; align-items: center; }
+.qd { display: inline-flex; align-items: center; gap: 5px; }
+.qd .qn { font-variant-numeric: tabular-nums; min-width: 1ch; font-weight: 500; }
+.qd .dot { width: 10px; height: 10px; border: 0; }
+.qd.done .dot { background: #3d9a50; }
+.qd.wait .dot { background: #d29a2e; }
+.qd.rest .dot { background: #c9c5ba; }
+.qlegend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: -6px 0 0; font-size: 13px; color: var(--mute); }
+.qlegend .dot { width: 8px; height: 8px; }
