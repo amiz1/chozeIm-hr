@@ -248,7 +248,7 @@ function newCaseForm(r) {
     });
   } },
     el('h2', {}, 'תיק חדש'),
-    el('p', { class: 'hint' }, 'אחרי הפתיחה, הנועץ/ת נרשם/ת באתר הנועצים עם אותו אימייל, ומקבל/ת קוד כניסה כרגיל. השאלונים שסימנת כבר יהיו פתוחים. מייל ההזמנה יוצא בשמך, ותשובות אליו מגיעות אליך.'),
+    el('p', { class: 'hint' }, 'הכניסה לאתר הנועצים היא עם חשבון Google של האימייל הזה, ורק למי שנפתח לו תיק כאן. השאלונים שסימנת כבר יהיו פתוחים. מייל ההזמנה יוצא בשמך, ותשובות אליו מגיעות אליך.'),
     el('div', { class: 'grid2' }, field('שם מלא', name), field('אימייל', email), field('טלפון (לא חובה)', phone), field('קבוצה', group)),
     el('div', { class: 'field' }, el('span', {}, 'נועצת או נועץ'), g.node),
     qs.length ? el('div', { class: 'field' }, el('span', {}, 'שאלונים פתוחים מההתחלה'), el('div', { class: 'checks' }, qs)) : null,
@@ -288,7 +288,7 @@ function drawClients(r, refresh) {
   const nArch = r.clients.filter(c => c.archived).length;
   if (!nArch) showArchive = false; // nothing archived (any more): back to the normal list
   const arch = el('input', { type: 'checkbox', id: 'showArchive', checked: showArchive });
-  const sort = select('clientSort', [['seen', 'מיון: כניסה אחרונה'], ['created', 'מיון: הרשמה'], ['name', 'מיון: שם']], clientSort);
+  const sort = select('clientSort', [['seen', 'מיון: כניסה אחרונה'], ['created', 'מיון: פתיחת התיק'], ['name', 'מיון: שם']], clientSort);
   sort.setAttribute('aria-label', 'מיון');
   const tableBox = el('div');
   const count = el('p', { class: 'muted small' });
@@ -330,7 +330,7 @@ function drawClients(r, refresh) {
         el('td', { class: 'who', title: c.email }, el('b', {}, c.name || c.email), c.age ? el('span', { class: 'muted' }, ' (' + c.age + ')') : null),
         el('td', { class: 'grp' }, groupLabel(c.group) || el('span', { class: 'muted' }, '—')),
         el('td', { class: 'staff-cell' }, c.staffName ? el('span', { class: c.staff === r.myEmail ? 'mine' : '' }, c.staff === r.myEmail ? 'אני' : c.staffName) : el('span', { class: 'muted' }, 'לא שויך')),
-        el('td', { class: 'seen' }, c.registered === false ? el('span', { class: 'muted' }, 'טרם נרשם/ה') : c.lastSeen ? fmtWhen(c.lastSeen) : el('span', { class: 'muted' }, '—')),
+        el('td', { class: 'seen' }, c.registered === false ? el('span', { class: 'muted' }, 'טרם נכנס/ה') : c.lastSeen ? fmtWhen(c.lastSeen) : el('span', { class: 'muted' }, '—')),
         el('td', { class: 'qs-cell' }, dots(c)),
         el('td', { class: 'next-cell' + (c.next && c.next.date ? '' : ' muted'), title: c.next ? 'פגישה ' + c.next.n : '' }, nextText(c))));
     tableBox.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'staff clients' },
@@ -413,7 +413,7 @@ function drawClient(r, refresh) {
       : el('span', { class: 'case-staff' }, 'לא שויך/ה ליועץ/ת ', el('button', { type: 'button', class: 'btn secondary small assign-me',
         onclick: (e) => withBusy(e.currentTarget, () => saveCase(c.email, { staff: me.email })) }, 'שיוך אליי'), ' · '),
       el('span', { dir: 'ltr' }, c.email), ci.phone ? el('span', {}, ' · ', el('span', { dir: 'ltr' }, ci.phone)) : null,
-      c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נרשם/ה לאתר') : ' · נרשם/ה ' + (c.created || '—'),
+      c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נכנס/ה לאתר') : ' · בתיק מאז ' + (c.created || '—'),
       ci.consent ? ' · הסכמה לשמירת מידע ' + ci.consentAt : '',
       ci.privacyAt ? ' · אישר/ה את מדיניות הפרטיות ' + ci.privacyAt : (c.registered === false ? '' : ' · טרם אישר/ה את מדיניות הפרטיות')),
     caseDetails(r, L),
