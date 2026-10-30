@@ -56,7 +56,23 @@ function cacheAt(key) {
 }
 function cachePut(key, r, at) {
   fetchedAt[key] = at || Date.now();
-  try { sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ token: getToken(), r: r, at: fetchedAt[key] })); } catch (e) { }
+  const s = JSON.stringify({ token: getToken(), r: r, at: fetchedAt[key] });
+  try { sessionStorage.setItem(CACHE_PREFIX + key, s); }
+  catch (e) { // the tab's storage is full: forget the other תיקים (never the list), then try again
+    try {
+      Object.keys(sessionStorage).filter(k => k.indexOf(CACHE_PREFIX + 'client_') === 0 && k !== CACHE_PREFIX + key).forEach(k => sessionStorage.removeItem(k));
+      sessionStorage.setItem(CACHE_PREFIX + key, s);
+    } catch (x) { }
+  }
+}
+// The list is never thrown away (it is redrawn from the server right after it is shown); a change we know of is applied to it at once
+function listPatch(email, change) {
+  const l = cacheGet('list');
+  if (!l || !l.clients) return;
+  const i = l.clients.findIndex(c => c.email === email);
+  if (i === -1) return;
+  if (change === null) l.clients.splice(i, 1); else Object.assign(l.clients[i], change);
+  cachePut('list', l, cacheAt('list'));
 }
 function cacheDrop(key) { delete fetchedAt[key]; try { sessionStorage.removeItem(CACHE_PREFIX + key); } catch (e) { } }
 function cacheClear() {
@@ -274,7 +290,6 @@ function newCaseForm(r) {
       const res = await api('caseOpen', { name: name.value, email: email.value, gender: g.value(), phone: phone.value, group: group.value,
         open: qs.map(l => l.querySelector('input')).filter(x => x.checked).map(x => x.value), invite: invite.checked });
       if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
-      cacheDrop('list');
       await showClient(res.email);
       if (res.invite === 'sent') app.querySelector('h1').after(msgBox('נשלח מייל הזמנה ל' + res.email + '.', 'success'));
       else if (res.invite === 'failed') app.querySelector('h1').after(msgBox('התיק נפתח, אבל מייל ההזמנה לא נשלח: ' + res.inviteError));
@@ -402,7 +417,10 @@ async function pullClient(email, seq, shown, early, keep) {
   }
   cachePut(key, r, early ? early.at : 0);
   if (!shown || !same(shown, r)) drawClient(r, !!shown || !!keep); else paintWhen(key);
+  if (!cacheGet('list') && !listAhead) listAhead = api('clientList').then(l => { if (l && l.ok) cachePut('list', l); listAhead = null; });
 }
+let listAhead = null;
+const today = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
 // a תיק not seen yet in this tab: what the list already knows, at once, while the rest loads
 function previewClient(email) {
   const list = cacheGet('list');
@@ -572,7 +590,7 @@ function openingItem(r, ms) {
 function afterMeetSave(r, res) {
   r.caseInfo = Object.assign({}, r.caseInfo, res.caseInfo); r.entries = res.entries;
   (res.opened || []).forEach(id => r.questionnaires.forEach(q => { if (q.id === id) q.open = true; }));
-  cachePut('client_' + r.client.email, r); cacheDrop('list');
+  cachePut('client_' + r.client.email, r);
   drawClient(r, true);
 }
 
@@ -796,7 +814,7 @@ function manageCase(r) {
   const c = r.client, ci = r.caseInfo || {};
   const arch = el('button', { type: 'button', class: 'btn secondary small', id: 'archiveBtn', onclick: (e) => withBusy(e.currentTarget, async () => {
     const ok = await saveCase(c.email, { archived: !ci.archived });
-    if (ok && !ci.archived) { cacheDrop('list'); showClients(); }
+    if (ok && !ci.archived) { listPatch(c.email, { archived: today() }); showClients(); }
   }) }, ci.archived ? 'החזרה מהארכיון' : 'העברה לארכיון');
   return el('details', { class: 'case-manage' }, el('summary', {}, 'ניהול התיק'),
     el('div', { class: 'card' },
@@ -834,7 +852,7 @@ function deleteDialog(r) {
       if (!res.handled) msg.replaceChildren(msgBox(res.message || 'המחיקה לא בוצעה.'));
       typed.disabled = false; drawReauth(); return;
     }
-    cacheClear();
+    cacheDrop('client_' + c.email); delete ahead[c.email]; listPatch(c.email, null);
     dlg.replaceChildren(el('div', { class: 'del-body' }, el('h2', {}, 'המידע נמחק'),
       el('p', {}, 'כל המידע על ' + name + ' נמחק מהמערכת. נשמרו רק השם, תאריך ההרשמה ותאריך המחיקה (בלשונית "מחיקות").'),
       el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn primary', id: 'delDone', onclick: () => { close(); showClients(); } }, 'חזרה לרשימת הנועצים'))));
@@ -873,7 +891,10 @@ function openMailRow(r) {
 async function saveCase(email, fields, msgEl) {
   const res = await api('caseSave', { email: email, fields: fields });
   if (!res.ok) { if (!res.handled && msgEl) msgEl.replaceChildren(msgBox(res.message)); return false; }
-  cacheDrop('client_' + email); cacheDrop('list');
+  cacheDrop('client_' + email);
+  if ('archived' in fields) listPatch(email, { archived: fields.archived ? today() : '' });
+  if ('staff' in fields) listPatch(email, fields.staff === (me && me.email) ? { staff: fields.staff, staffName: me.name } : { staff: fields.staff });
+  if ('group' in fields) listPatch(email, { group: fields.group });
   showClient(email);
   return true;
 }
