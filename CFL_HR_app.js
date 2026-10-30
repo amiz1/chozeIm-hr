@@ -232,23 +232,27 @@ function newCaseForm(r) {
   const group = select('nc_group', [['', 'לא נבחרה']].concat(r.groups || []), '');
   const qs = (r.qlist || []).map((q, i) => el('label', { class: 'check' },
     el('input', { type: 'checkbox', value: q.id, checked: i === 0 }), ' ' + q.title));
+  const invite = el('input', { type: 'checkbox', id: 'nc_invite', checked: true });
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'פתיחת התיק');
   return el('form', { class: 'card new-case', onsubmit: async (e) => {
     e.preventDefault();
     msg.replaceChildren();
     await withBusy(btn, async () => {
       const res = await api('caseOpen', { name: name.value, email: email.value, gender: g.value(), phone: phone.value, group: group.value,
-        open: qs.map(l => l.querySelector('input')).filter(x => x.checked).map(x => x.value) });
+        open: qs.map(l => l.querySelector('input')).filter(x => x.checked).map(x => x.value), invite: invite.checked });
       if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
       cacheDrop('list');
-      showClient(res.email);
+      await showClient(res.email);
+      if (res.invite === 'sent') app.querySelector('h1').after(msgBox('נשלח מייל הזמנה ל' + res.email + '.', 'success'));
+      else if (res.invite === 'failed') app.querySelector('h1').after(msgBox('התיק נפתח, אבל מייל ההזמנה לא נשלח: ' + res.inviteError));
     });
   } },
     el('h2', {}, 'תיק חדש'),
-    el('p', { class: 'hint' }, 'אחרי הפתיחה, הנועץ/ת נרשם/ת באתר הנועצים עם אותו אימייל, ומקבל/ת קוד כניסה כרגיל. השאלונים שסימנת כבר יהיו פתוחים.'),
+    el('p', { class: 'hint' }, 'אחרי הפתיחה, הנועץ/ת נרשם/ת באתר הנועצים עם אותו אימייל, ומקבל/ת קוד כניסה כרגיל. השאלונים שסימנת כבר יהיו פתוחים. מייל ההזמנה יוצא בשמך, ותשובות אליו מגיעות אליך.'),
     el('div', { class: 'grid2' }, field('שם מלא', name), field('אימייל', email), field('טלפון (לא חובה)', phone), field('קבוצה', group)),
     el('div', { class: 'field' }, el('span', {}, 'נועצת או נועץ'), g.node),
     qs.length ? el('div', { class: 'field' }, el('span', {}, 'שאלונים פתוחים מההתחלה'), el('div', { class: 'checks' }, qs)) : null,
+    el('label', { class: 'check' }, invite, ' לשלוח לנועץ/ת מייל הזמנה (איך נרשמים, ומה כבר פתוח)'),
     msg, el('div', { class: 'row' }, btn));
 }
 
@@ -301,8 +305,8 @@ function drawClients(r, refresh) {
     const qs = c.qs || [], done = qs.filter(q => q.done), wait = qs.filter(q => !q.done), rest = c.notYet || [];
     const one = (cls, list, word) => el('span', { class: 'qd ' + cls, title: word + (list.length ? ':\n' + list.join('\n') : '') },
       el('span', { class: 'dot' }), el('span', { class: 'qn' }, String(list.length)));
-    return el('span', { class: 'qdots', 'aria-label': done.length + ' מולאו, ' + wait.length + ' ממתינים, ' + rest.length + ' טרם נשלחו' },
-      one('done', done.map(q => q.title), 'מולאו'), one('wait', wait.map(q => q.title), 'נשלחו וממתינים'), one('rest', rest, 'טרם נשלחו'));
+    return el('span', { class: 'qdots', 'aria-label': done.length + ' מולאו, ' + wait.length + ' פתוחים וטרם מולאו, ' + rest.length + ' לא נפתחו' },
+      one('done', done.map(q => q.title), 'מולאו'), one('wait', wait.map(q => q.title), 'פתוחים, טרם מולאו'), one('rest', rest, 'לא נפתחו'));
   };
   const nextText = c => c.next && c.next.date ? fmtDay(c.next.date) + (c.next.time ? ' בשעה ' + c.next.time : '')
     : c.meetingsOver ? 'הפגישות הסתיימו' : 'טרם נקבע';
@@ -335,7 +339,7 @@ function drawClients(r, refresh) {
         el('th', {}, 'הפגישה הבאה'))),
       el('tbody', {}, rows))),
       el('p', { class: 'qlegend' }, 'שאלונים: ', el('span', { class: 'qd done' }, el('span', { class: 'dot' }), 'מולאו'),
-        el('span', { class: 'qd wait' }, el('span', { class: 'dot' }), 'נשלחו וממתינים'), el('span', { class: 'qd rest' }, el('span', { class: 'dot' }), 'טרם נשלחו')));
+        el('span', { class: 'qd wait' }, el('span', { class: 'dot' }), 'פתוחים, טרם מולאו'), el('span', { class: 'qd rest' }, el('span', { class: 'dot' }), 'לא נפתחו')));
   }
   search.addEventListener('input', draw); mine.addEventListener('change', draw); sort.addEventListener('change', draw); arch.addEventListener('change', draw);
   draw();
@@ -500,7 +504,7 @@ function meetingCard(r, ms, n) {
   const filled = el('div', { class: 'mtg-part' }, el('h4', {}, 'מה מולא לקראת הפגישה'),
     forThis.length ? el('ul', { class: 'mtg-qs' }, forThis.map(q => el('li', { class: q.sentAt ? 'done' : '' },
       el('span', { class: 'dot' }), el('span', { class: 'qt' }, q.title),
-      q.sentAt ? el('span', { class: 'muted small' }, ' · ' + fmtWhen(q.sentAt)) : el('span', { class: 'badge wait' }, q.open ? 'טרם נשלח' : 'סגור · טרם נשלח'),
+      q.sentAt ? el('span', { class: 'muted small' }, ' · ' + fmtWhen(q.sentAt)) : el('span', { class: 'badge wait' }, q.open ? 'טרם מילא/ה' : 'סגור · טרם מילא/ה'),
       q.sentAt ? el('button', { type: 'button', class: 'link-btn small', onclick: () => openAnswers(q, c) }, 'צפייה בתשובות') : null)))
       : el('p', { class: 'muted small' }, prev ? 'בפגישה ה' + ORD[n - 2] + ' לא נבחרו שאלונים.' : 'עוד לא נפתחו שאלונים.'));
 
@@ -607,8 +611,9 @@ setInterval(async () => {
   const w = prepWait;
   if (!w || document.visibilityState !== 'visible') return;
   if (Date.now() > w.until || currentClient !== w.email) { prepWait = null; return; }
+  if (!app.querySelector('.case-tab')) return; // another screen is open: wait until the תיק is back on screen
   const r = await api('clientGet', { email: w.email });
-  if (!r.ok || prepWait !== w || currentClient !== w.email) return;
+  if (!r.ok || prepWait !== w || currentClient !== w.email || !app.querySelector('.case-tab')) return;
   const p = ((r.entries.meetTexts || {})[w.n] || {}).prep;
   if (p && p.at + p.text !== w.was) {
     prepWait = null; cachePut('client_' + w.email, r);
@@ -905,7 +910,7 @@ function questionnaireRow(q, client) {
       if (q.id === 'intake' && q.state) parts.push(el('button', { type: 'button', class: 'btn secondary small open-analysis', onclick: () => openAnswers(q, client, 'analysis') }, 'ניתוח מלא'));
     } else {
       if (q.open) {
-        parts.push(el('span', { class: 'badge wait' }, 'טרם נשלח'));
+        parts.push(el('span', { class: 'badge wait' }, 'טרם מילא/ה'));
         const last = currentReminders[q.id];
         const rb = el('button', { type: 'button', class: 'btn secondary small remind', title: last ? 'תזכורת אחרונה: ' + last : '', onclick: async () => {
           const res = await withBusy(rb, () => api('remind', { email: client.email, id: q.id }));
@@ -972,7 +977,7 @@ function cvRow(cv, client) {
 }
 
 function sentLabel(q) {
-  return 'נשלח ' + q.sentAt + (q.updatedAt && q.updatedAt !== q.sentAt ? ' · עודכן ' + q.updatedAt : '');
+  return 'מולא ' + q.sentAt + (q.updatedAt && q.updatedAt !== q.sentAt ? ' · עודכן ' + q.updatedAt : '');
 }
 
 // The answers of one questionnaire, in a popup over the page (closes with ✕, Esc or a click outside)
