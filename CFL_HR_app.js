@@ -171,7 +171,32 @@ function paintMenu() { document.querySelectorAll('.menu-item[data-k=staff]').for
 
 function loading(active) { render(menu(active), el('p', { class: 'loading' }, 'טוען…')); }
 
-async function showHome() { await showClients(); }
+// "חזרה למסך הנועץ" in the Claude page links here with #prep=<request id> (no email in the address)
+let prepLink = '';
+function readPrepLink() {
+  const m = /^#prep=(r[0-9a-f]{20})$/.exec(location.hash);
+  if (!m) return false;
+  prepLink = m[1];
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { }
+  return true;
+}
+readPrepLink();
+// the link opened while the site is already open in this tab
+window.addEventListener('hashchange', () => { if (readPrepLink() && getToken()) showHome(); });
+async function showHome() {
+  if (prepLink) {
+    const req = prepLink; prepLink = '';
+    if (!(await ensureMe())) { prepLink = req; return; }
+    loading('clients');
+    const r = await api('prepFind', { req: req });
+    if (r.ok) { meetSel[r.email] = r.n; caseTab = 'meet'; cacheDrop('client_' + r.email); return showClient(r.email); }
+    if (r.handled) { prepLink = req; return; }
+    await showClients();
+    app.prepend(msgBox(r.message));
+    return;
+  }
+  await showClients();
+}
 
 // ---------- client list ----------
 let clientSearch = '';
@@ -338,6 +363,7 @@ async function showClient(email) {
 
 let currentClient = null; // the email of the תיק on screen (refreshed when you come back to this tab)
 let caseTab = 'meet';
+let qsOpen = false; // "השאלונים" open or closed (kept while moving between תיקים)
 
 function drawClient(r, refresh) {
   const y = window.scrollY;
@@ -388,17 +414,24 @@ function drawClient(r, refresh) {
     !ci.group ? el('div', { class: 'card group-pick' }, el('b', {}, 'קבוצה: '), el('span', { class: 'muted' }, suggested ? 'הצעה לפי שאלון הכניסה: ' : 'עוד לא נבחרה. '),
       el('div', { class: 'row' }, L.groups.map(([v, l]) => el('button', { type: 'button', class: 'btn small ' + (v === suggested ? 'primary' : 'secondary'),
         onclick: () => saveCase(c.email, { group: v }) }, l.split(' · ').slice(0, 2).join(' · '))))) : null,
-    el('h2', { class: 'section-title' }, 'השאלונים', el('span', { class: 'muted small' }, ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' נשלחו')),
-    openMailRow(r),
-    blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
-    others.length ? el('details', { class: 'more-q' }, el('summary', {}, 'שאלונים נוספים, לקבוצות אחרות (' + others.length + ')'),
-      el('div', { class: 'qlist' }, others.map(q => questionnaireRow(q, c)))) : null,
-    cvRow(r.cv, c),
+    qsSection(el('summary', {}, 'השאלונים', el('span', { class: 'muted small' }, ' · ' + sentCount + ' מתוך ' + r.questionnaires.length + ' נשלחו' +
+        (r.questionnaires.filter(q => q.open && !q.sentAt).length ? ' · ' + r.questionnaires.filter(q => q.open && !q.sentAt).length + ' פתוחים וממתינים' : ''))),
+      openMailRow(r),
+      blocks.length ? el('div', { class: 'qlist' }, blocks) : el('p', { class: 'muted' }, 'אין עדיין שאלונים במערכת.'),
+      others.length ? el('details', { class: 'more-q' }, el('summary', {}, 'שאלונים נוספים, לקבוצות אחרות (' + others.length + ')'),
+        el('div', { class: 'qlist' }, others.map(q => questionnaireRow(q, c)))) : null,
+      cvRow(r.cv, c)),
     el('div', { class: 'tabs', role: 'group', 'aria-label': 'חלקי התיק' }, tabBtns),
     tabBox,
     manageCase(r));
   Object.keys(drafts).forEach(id => { const x = document.getElementById(id); if (x) x.value = drafts[id]; });
   window.scrollTo(0, refresh ? y : 0);
+}
+
+function qsSection(summary, ...body) {
+  const d = el('details', { class: 'case-qs', open: qsOpen }, summary, ...body);
+  d.addEventListener('toggle', () => { qsOpen = d.open; });
+  return d;
 }
 
 // Group 1א… from the first answer of שאלון הכניסה (as the "תיקי נועצים" page did); the יועץ confirms it
@@ -469,6 +502,18 @@ function meetingCard(r, ms, n) {
       q.sentAt ? el('button', { type: 'button', class: 'link-btn small', onclick: () => openAnswers(q, c) }, 'צפייה בתשובות') : null)))
       : el('p', { class: 'muted small' }, prev ? 'בפגישה ה' + ORD[n - 2] + ' לא נבחרו שאלונים.' : 'עוד לא נפתחו שאלונים.'));
 
+  // הכנה לפגישה: a button until there is one; written with Claude, kept here, editable
+  const prepT = T.prep && T.prep.text ? T.prep : null;
+  const draftAt = (E.prepDrafts || {})[n];
+  const prepMsg = el('div', { class: 'prep-msg', 'aria-live': 'polite' });
+  const prepBtn = el('button', { type: 'button', class: prepT ? 'link-btn small prep-claude' : 'btn secondary prep-claude', onclick: () => openPrep(r, n, prepBtn, prepMsg) },
+    prepT ? 'עדכון ב-Claude' : draftAt ? 'המשך ההכנה ב-Claude' : 'הכנה לפגישה עם Claude');
+  const prepPart = el('div', { class: 'mtg-part prep' }, el('h4', {}, 'הכנה לפגישה',
+      prepT ? el('span', { class: 'muted small by' }, ' · ' + (prepT.byName || '') + ', ' + fmtWhen(prepT.at)) : null),
+    prepT ? el('textarea', { id: 'm_prep', 'data-keep': '1', rows: '7' }, prepT.text) : null,
+    prepT ? null : el('p', { class: 'hint' }, draftAt ? 'יש טיוטה ב-Claude שעוד לא אושרה.' : 'Claude כותב הכנה קצרה: מה סוכם בפגישה הקודמת, מה חדש בתשובות, מה לשאול ומה לבדוק.'),
+    el('div', { class: 'row' }, prepBtn, prepMsg));
+
   const areas = MEET_TEXT.map(([f, lab, ph]) => {
     const x = el('textarea', { id: 'm_' + f, 'data-keep': '1', rows: f === 'summary' ? '5' : '3', placeholder: ph }, (T[f] || {}).text || '');
     return el('label', { class: 'field mtg-text' }, el('span', {}, lab,
@@ -508,13 +553,14 @@ function meetingCard(r, ms, n) {
   const save = el('button', { type: 'button', class: 'btn primary', id: 'm_save', onclick: async () => {
     msg.replaceChildren();
     const texts = {}; MEET_TEXT.forEach(([f]) => { texts[f] = document.getElementById('m_' + f).value; });
+    if (document.getElementById('m_prep')) texts.prep = document.getElementById('m_prep').value;
     const given = [...nextPart.querySelectorAll('input:checked')].map(x => x.value);
     const res = await withBusy(save, () => api('meetSave', { email: c.email, n: n, done: done.checked, date: date.value, time: time.value, given: given, texts: texts }));
     if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
     const titles = (res.opened || []).map(id => (byId[id] || {}).title || id);
     meetSel[c.email] = n; // stay on this meeting after the save
     meetFlash = { email: c.email, n: n, opened: res.opened || [], text: 'נשמר' + (titles.length ? '. נפתחו לנועץ/ת: ' + titles.join(', ') : '') };
-    MEET_TEXT.forEach(([f]) => { const x = document.getElementById('m_' + f); if (x) x.defaultValue = x.value; });
+    MEET_TEXT.concat([['prep']]).forEach(([f]) => { const x = document.getElementById('m_' + f); if (x) x.defaultValue = x.value; });
     afterMeetSave(r, res);
   } }, 'שמירת הפגישה');
 
@@ -522,11 +568,45 @@ function meetingCard(r, ms, n) {
     el('div', { class: 'mtg-head' }, el('h3', {}, 'פגישה ' + (ORD[n - 1] || n)),
       el('span', { class: 'mtg-when' }, el('label', { class: 'check' }, done, ' התקיימה'), date, time)),
     filled,
+    prepPart,
     areas,
     nextPart,
     oldPart,
     el('div', { class: 'row' }, save, msg));
 }
+
+let prepWait = null; // { email, n, until, was }: waiting for a prep approved in Claude
+async function openPrep(r, n, btn, msg) {
+  const c = r.client;
+  msg.replaceChildren();
+  if (!r.claudeUrl) { msg.append(msgBox('קודם צריך להגדיר את הקישור לדף Claude שלך, בהגדרות.')); return; }
+  let w = null;
+  try { w = window.open('', '_blank'); } catch (e) { w = null; }
+  if (w) { try { w.document.title = 'מכינים את הפגישה…'; w.document.body.textContent = 'מכינים את הפגישה ל-Claude…'; } catch (e) { } }
+  let res;
+  await withBusy(btn, async () => { res = await api('claudePrepare', { email: c.email, meet: n }); });
+  if (!res || !res.ok) { if (w) w.close(); if (res && !res.handled) msg.append(msgBox(res.message)); return; }
+  const link = (res.url || r.claudeUrl) + '#' + res.req;
+  if (w) { try { w.opener = null; w.location.href = link; } catch (e) { w = null; } }
+  msg.append(el('span', { class: 'small' }, w ? 'נפתח בלשונית חדשה. ' : '',
+    el('a', { href: link, target: '_blank', rel: 'noopener', class: 'claude-link' }, w ? 'לא נפתח? לחצו כאן' : 'פתיחה ב-Claude'),
+    '. אחרי האישור שם, ההכנה תופיע כאן.'));
+  const was = (((r.entries || {}).meetTexts || {})[n] || {}).prep;
+  prepWait = { email: c.email, n: n, until: Date.now() + 30 * 60000, was: was ? was.at + was.text : '' };
+}
+// while waiting: check every 15 seconds (only when this tab is on screen)
+setInterval(async () => {
+  const w = prepWait;
+  if (!w || document.visibilityState !== 'visible') return;
+  if (Date.now() > w.until || currentClient !== w.email) { prepWait = null; return; }
+  const r = await api('clientGet', { email: w.email });
+  if (!r.ok || prepWait !== w || currentClient !== w.email) return;
+  const p = ((r.entries.meetTexts || {})[w.n] || {}).prep;
+  if (p && p.at + p.text !== w.was) {
+    prepWait = null; cachePut('client_' + w.email, r);
+    meetSel[w.email] = w.n; caseTab = 'meet'; drawClient(r, true);
+  }
+}, 15000);
 
 // ---------- managing the תיק: archive, and (admins) deleting everything ----------
 function manageCase(r) {
@@ -1084,10 +1164,20 @@ function drawStaff(box, staff) {
       el('td', { dir: 'ltr', class: 'mail' }, s.email),
       el('td', {}, el('label', { class: 'check' }, cb, s.owner ? ' בעלים' : '')),
       el('td', {}, s.addedBy ? s.addedBy : 'הוזנ/ה ידנית'),
-      el('td', {}, s.lastLogin || '—'));
+      el('td', {}, s.lastLogin || '—'),
+      el('td', {}, s.owner || mine ? null : el('button', { type: 'button', class: 'link-btn small del staff-remove', onclick: async (e) => {
+        const b = e.currentTarget;
+        if (b.dataset.arm !== '1') { b.dataset.arm = '1'; b.textContent = 'להסיר את ' + (s.name || s.email) + '? לחיצה נוספת'; return; }
+        b.disabled = true;
+        const r = await api('staffRemove', { email: s.email });
+        if (!r.ok) { b.disabled = false; if (!r.handled) note.textContent = r.message; return; }
+        drawStaff(box, r.staff);
+        box.append(msgBox((s.name || s.email) + ' הוסר/ה. ' + (r.freed ? r.freed + ' נועצים שלו/ה עכשיו לא משויכים. ' : '') +
+          'הגישה לקורות החיים ולתיבת Claude ' + (r.accessUpdated ? 'הוסרה.' : 'תוסר בבדיקה השעתית.'), 'success'));
+      } }, 'הסרה')));
   });
   box.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'staff' },
-    el('thead', {}, el('tr', {}, el('th', {}, 'שם'), el('th', {}, 'אימייל'), el('th', {}, 'מנהל/ת'), el('th', {}, 'נוסף/ה על ידי'), el('th', {}, 'כניסה אחרונה'))),
+    el('thead', {}, el('tr', {}, el('th', {}, 'שם'), el('th', {}, 'אימייל'), el('th', {}, 'מנהל/ת'), el('th', {}, 'נוסף/ה על ידי'), el('th', {}, 'כניסה אחרונה'), el('th', {}, ''))),
     el('tbody', {}, rows))),
     el('p', { class: 'hint' }, 'מנהל/ת רואה את כל הנועצים ואת דף היועצים, ויכול/ה למחוק נועץ/ת. יועץ/ת אחר/ת רואה רק את הנועצים שלו/ה ואת אלה שלא שויכו.'), note);
 }

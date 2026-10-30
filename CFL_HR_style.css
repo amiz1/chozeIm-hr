@@ -318,3 +318,14 @@ dialog.del-modal { height: auto; max-height: 90vh; max-width: 560px; }
 .del-step2 { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
 .assign-me { margin-inline-start: 4px; }
 .del-modal .mhead { border-right-color: var(--clay); }
+
+/* the questionnaires, opened and closed like "עריכת פרטים" */
+.case-qs { margin: 22px 0 6px; }
+.case-qs > summary { cursor: pointer; font-size: 19px; font-weight: 700; padding: 6px 0; }
+.case-qs > summary .muted { font-weight: 400; }
+.case-qs[open] > summary { margin-bottom: 8px; }
+/* הכנה לפגישה */
+.mtg-part.prep { background: var(--tint); border-right: 3px solid var(--olive); padding: 10px 12px; }
+.mtg-part.prep textarea { width: 100%; background: var(--card); }
+.mtg-part.prep .hint { margin: 2px 0 8px; }
+.prep-msg { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
