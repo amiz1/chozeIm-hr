@@ -456,7 +456,7 @@ function drawClient(r, refresh) {
 
   // text being written survives a refresh of the page (the note, and the meeting fields)
   const drafts = {};
-  if (refresh) document.querySelectorAll('textarea[data-keep]').forEach(x => { if (x.value !== x.defaultValue) drafts[x.id] = x.value; });
+  if (refresh) document.querySelectorAll('textarea[data-keep]').forEach(x => { if (x.value !== x.defaultValue) drafts[x.id] = { value: x.value, was: x.defaultValue }; });
   render(menu('clients'), el('div', { class: 'top-row' }, backLink(),
       refreshBar('client_' + c.email, () => pullClient(c.email, viewSeq, cacheGet('client_' + c.email), null, true))),
     el('h1', {}, c.name || c.email),
@@ -484,7 +484,12 @@ function drawClient(r, refresh) {
     el('h2', { class: 'section-title tl-title' }, 'אינטראקציות'),
     tabBox,
     manageCase(r));
-  Object.keys(drafts).forEach(id => { const x = document.getElementById(id); if (x) x.value = drafts[id]; });
+  Object.keys(drafts).forEach(id => {
+    const x = document.getElementById(id);
+    if (!x) return;
+    if ((id === 'm_prep' || id === 'm_insight') && x.defaultValue !== drafts[id].was) return; // Claude wrote a new version: it wins
+    x.value = drafts[id].value;
+  });
   window.scrollTo(0, refresh ? y : 0);
 }
 
@@ -623,6 +628,7 @@ function interactionCard(r, ms, n) {
       : 'Claude כותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא: מה השתנה, מה חדש בתשובות, מה לבדוק. הטקסט נשמר כאן.')
       : 'אם רוצים: Claude עובר על מה שהתקבל, ומציע אם לשלוח עוד הכנה לפני הפגישה. הטקסט נשמר כאן.'),
     el('div', { class: 'row' }, cBtn, cMsg));
+  if (prepWait && prepWait.email === c.email && prepWait.n === n && prepWait.field === field) cMsg.append(waitNote(prepWait));
 
   const TEXTS = meet ? [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות', 'מה סוכם, ומה הכיוון להמשך']]
     : [['decisions', 'מה הוחלט', 'מה עולה ממה שהתקבל, ומה עושים עכשיו']];
@@ -723,34 +729,67 @@ async function openPrep(r, n, btn, msg, field) {
   let res;
   await withBusy(btn, async () => { res = await api('claudePrepare', { email: c.email, meet: n }); });
   if (!res || !res.ok) { if (w) w.close(); if (res && !res.handled) msg.append(msgBox(res.message)); return; }
-  // a script from before the interactions ignores them and prepares the old package: say so instead of opening it
-  if (res.meet !== n) {
+  // a server script from before the interactions prepares the old package: say so instead of opening it
+  if (res.meet !== n || !(res.pkg >= 2)) {
     if (w) w.close();
     msg.append(msgBox('הסקריפט בשרת עדיין בגרסה ישנה. צריך להדביק בסקריפט של אתר היועצים את הקבצים החדשים, להריץ setup, ולפרסם גרסה חדשה (Deploy ← Manage deployments ← New version).'));
     return;
   }
   const link = (res.url || r.claudeUrl) + '#' + res.req;
   if (w) { try { w.opener = null; w.location.href = link; } catch (e) { w = null; } }
-  msg.append(el('span', { class: 'small' }, w ? 'נפתח בלשונית חדשה. ' : '',
-    el('a', { href: link, target: '_blank', rel: 'noopener', class: 'claude-link' }, w ? 'לא נפתח? לחצו כאן' : 'פתיחה ב-Claude'),
-    '. מה ש-Claude כותב יופיע כאן.'));
   const was = (((r.entries || {}).meetTexts || {})[n] || {})[field];
-  prepWait = { email: c.email, n: n, field: field, until: Date.now() + 30 * 60000, was: was ? was.at + was.text : '' };
+  prepWait = { email: c.email, n: n, field: field, started: Date.now(), until: Date.now() + 40 * 60000, was: was ? was.at + was.text : '',
+    link: link, opened: !!w, got: 0, oldPage: false, next: 0 };
+  msg.replaceChildren(waitNote(prepWait));
 }
-// while waiting: check every 15 seconds (only when this tab is on screen, and the תיק is the screen)
+// under the Claude button while Claude works: a link to the page, and that each version Claude saves shows up here
+function waitNote(w) {
+  const box = el('div', { class: 'wait-note small' });
+  box.append(el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
+    w.got ? 'Claude שמר גרסה חדשה ' + fmtWhen(w.gotAt) + '. תיקון שתכתבו ב-Claude יחליף את הטקסט כאן. '
+      : 'Claude כותב בלשונית ' + (w.opened ? 'שנפתחה' : 'של Claude') + '. כשיסיים, הטקסט יופיע כאן מעצמו. ',
+    el('a', { href: w.link, target: '_blank', rel: 'noopener', class: 'claude-link' }, w.opened ? 'לא נפתח? לחצו כאן' : 'פתיחה ב-Claude'));
+  if (w.oldPage) box.append(msgBox('הקישור לדף Claude בהגדרות שלך מוביל לגרסה ישנה של הדף (היא מנהלת שיחה, ולא שומרת כאן). צריך להעתיק את הדף החדש ולעדכן את הקישור בהגדרות.'));
+  else if (!w.got && Date.now() - w.started > 4 * 60000) box.append(el('p', { class: 'hint' },
+    'עדיין לא נשמר טקסט. אם בלשונית של Claude מופיעה שיחה ולא טקסט אחד עם "שמור בתיק", הקישור בהגדרות מוביל לדף ישן.'));
+  return box;
+}
+function paintWait() {
+  const w = prepWait;
+  const b = document.querySelector('.tl-item.open .prep-msg');
+  if (w && b && currentClient === w.email && meetSel[w.email] === w.n) b.replaceChildren(waitNote(w));
+}
+// while waiting: a light check every 4 seconds (every 20 when this tab is in the background); each new version Claude saves shows up here
+let prepBusy = false;
 setInterval(async () => {
   const w = prepWait;
-  if (!w || document.visibilityState !== 'visible') return;
-  if (Date.now() > w.until || currentClient !== w.email) { prepWait = null; return; }
-  if (!app.querySelector('.case-tab')) return; // another screen is open: wait until the תיק is back on screen
-  const r = await api('clientGet', { email: w.email });
-  if (!r.ok || prepWait !== w || currentClient !== w.email || !app.querySelector('.case-tab')) return;
-  const p = ((r.entries.meetTexts || {})[w.n] || {})[w.field];
+  if (!w || prepBusy || Date.now() < w.next) return;
+  if (Date.now() > w.until) { prepWait = null; paintWait(); return; }
+  if (currentClient !== w.email || !app.querySelector('.case-tab')) return; // another screen: wait until the תיק is back
+  w.next = Date.now() + (document.visibilityState === 'visible' ? 4000 : 20000);
+  prepBusy = true;
+  let r;
+  try { r = await api('meetText', { email: w.email, n: w.n }); } finally { prepBusy = false; }
+  if (!r || !r.ok || prepWait !== w || currentClient !== w.email) return;
+  w.oldPage = !!r.oldPage;
+  const p = r[w.field];
   if (p && p.at + p.text !== w.was) {
-    w.was = p.at + p.text; cachePut('client_' + w.email, r); // keep watching: a correction in Claude rewrites it again
-    meetSel[w.email] = w.n; drawClient(r, true);
+    w.was = p.at + p.text; w.got++; w.gotAt = p.at; w.until = Date.now() + 40 * 60000; // keep watching: a correction rewrites it again
+    cacheDrop('client_' + w.email);
+    const box = document.getElementById('m_' + w.field);
+    if (box && meetSel[w.email] === w.n) { // on screen: just the text changes
+      box.value = p.text; box.defaultValue = p.text;
+      box.classList.remove('fresh'); void box.offsetWidth; box.classList.add('fresh');
+      const by = box.parentNode.querySelector('h4 .by'); if (by) by.textContent = ' · ' + (p.byName || '') + ', ' + fmtWhen(p.at);
+    } else {
+      const full = await api('clientGet', { email: w.email });
+      if (full.ok && prepWait === w && currentClient === w.email && app.querySelector('.case-tab')) {
+        cachePut('client_' + w.email, full); meetSel[w.email] = w.n; drawClient(full, true);
+      }
+    }
   }
-}, 15000);
+  paintWait();
+}, 1000);
 
 // ---------- managing the תיק: archive, and (admins) deleting everything ----------
 function manageCase(r) {

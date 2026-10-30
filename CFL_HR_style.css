@@ -365,3 +365,12 @@ table.clients .muted { color: var(--mute); }
 .top-row .refresh-bar { margin: 0; }
 /* a תיק not seen yet: what the list knows, while the rest loads */
 .case-preview .preview-facts p { margin: 4px 0; }
+
+/* while Claude writes into an interaction */
+.wait-note { display: block; color: var(--ink); line-height: 1.6; }
+.wait-note .msg { margin-top: 8px; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--olive); margin-inline-end: 6px; vertical-align: middle; animation: livepulse 1.6s ease-in-out infinite; }
+@keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+textarea.fresh { animation: freshtext 2.4s ease-out; }
+@keyframes freshtext { from { background: #eef5e6; } }
+@media (prefers-reduced-motion: reduce) { .live-dot, textarea.fresh { animation: none; } }
