@@ -356,3 +356,12 @@ table.clients .muted { color: var(--mute); }
 .qd.rest .dot { background: #c9c5ba; }
 .qlegend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: -6px 0 0; font-size: 13px; color: var(--mute); }
 .qlegend .dot { width: 8px; height: 8px; }
+
+/* "רענן" and when the page's data was last pulled */
+.refresh-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin: -6px 0 6px; }
+.refresh-bar .when { white-space: nowrap; }
+.top-row { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.top-row .back { margin: 0; }
+.top-row .refresh-bar { margin: 0; }
+/* a תיק not seen yet: what the list knows, while the rest loads */
+.case-preview .preview-facts p { margin: 4px 0; }

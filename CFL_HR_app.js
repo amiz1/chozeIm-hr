@@ -48,13 +48,21 @@ function cacheGet(key) {
     return o && o.token === getToken() ? o.r : null;
   } catch (e) { return null; }
 }
-function cachePut(key, r) {
-  try { sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ token: getToken(), r: r })); } catch (e) { }
+// when the page's data was last pulled from the server (shown next to "רענן")
+const fetchedAt = {};
+function cacheAt(key) {
+  if (fetchedAt[key]) return fetchedAt[key];
+  try { const o = JSON.parse(sessionStorage.getItem(CACHE_PREFIX + key) || 'null'); return o && o.at || 0; } catch (e) { return 0; }
 }
-function cacheDrop(key) { try { sessionStorage.removeItem(CACHE_PREFIX + key); } catch (e) { } }
+function cachePut(key, r, at) {
+  fetchedAt[key] = at || Date.now();
+  try { sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ token: getToken(), r: r, at: fetchedAt[key] })); } catch (e) { }
+}
+function cacheDrop(key) { delete fetchedAt[key]; try { sessionStorage.removeItem(CACHE_PREFIX + key); } catch (e) { } }
 function cacheClear() {
   try { Object.keys(sessionStorage).filter(k => k.indexOf(CACHE_PREFIX) === 0).forEach(k => sessionStorage.removeItem(k)); } catch (e) { }
   ahead = {};
+  for (const k in fetchedAt) delete fetchedAt[k];
 }
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -68,7 +76,29 @@ function loadAhead(email) {
 function takeAhead(email) {
   const a = ahead[email];
   delete ahead[email];
-  return a && Date.now() - a.at < 30000 ? a.promise : null;
+  return a && Date.now() - a.at < 30000 ? a : null;
+}
+
+// "רענן": pulls this page's data again from the server (only this page), with when it was last pulled
+let pageKey = '', pageRefresh = null; // the page on screen, and how to pull it again
+function whenText(at) {
+  if (!at) return '';
+  const d = new Date(at), p = n => String(n).padStart(2, '0');
+  return 'עודכן ' + fmtWhen(d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()));
+}
+function refreshBar(key, again) {
+  pageKey = key; pageRefresh = again;
+  const at = cacheAt(key);
+  return el('div', { class: 'refresh-bar' },
+    el('span', { class: 'when muted small', title: at ? new Date(at).toLocaleString('he-IL') : '' }, whenText(at)),
+    el('button', { type: 'button', class: 'btn secondary small refresh-btn', title: 'משיכת הנתונים של הדף הזה מחדש',
+      onclick: (e) => { if (pageKey === key && pageRefresh) withBusy(e.currentTarget, pageRefresh); } }, 'רענן'));
+}
+// the data came back the same as on screen: just the time changes
+function paintWhen(key) {
+  if (pageKey !== key) return;
+  const at = cacheAt(key);
+  document.querySelectorAll('.refresh-bar .when').forEach(s => { s.textContent = whenText(at); s.title = at ? new Date(at).toLocaleString('he-IL') : ''; });
 }
 
 let viewSeq = 0; // each screen gets a number; a late answer for an older screen is ignored
@@ -169,7 +199,7 @@ function menu(active) {
 }
 function paintMenu() { document.querySelectorAll('.menu-item[data-k=staff]').forEach(b => { b.hidden = !(me && me.admin); }); }
 
-function loading(active) { render(menu(active), el('p', { class: 'loading' }, 'טוען…')); }
+function loading(active) { pageKey = ''; pageRefresh = null; render(menu(active), el('p', { class: 'loading' }, 'טוען…')); }
 
 // "חזרה למסך הנועץ" in the Claude page links here with #prep=<request id> (no email in the address)
 let prepLink = '';
@@ -205,11 +235,14 @@ async function showClients() {
   const seq = ++viewSeq;
   const cached = cacheGet('list');
   if (cached) drawClients(cached); else loading('clients');
+  await pullClients(seq, cached);
+}
+async function pullClients(seq, shown, keep) {
   const r = await api('clientList');
   if (seq !== viewSeq) return;
-  if (!r.ok) { if (!r.handled && !cached) render(menu('clients'), msgBox(r.message)); return; }
+  if (!r.ok) { if (!r.handled && !shown) render(menu('clients'), msgBox(r.message)); else if (shown && !r.handled) app.prepend(msgBox(r.message)); return; }
   cachePut('list', r);
-  if (!cached || !same(cached, r)) drawClients(r, !!cached);
+  if (!shown || !same(shown, r)) drawClients(r, !!shown || !!keep); else paintWhen('list');
 }
 
 // "פתיחת תיק": a יועץ opens a תיק for someone who will sign up later with this email
@@ -340,6 +373,7 @@ function drawClients(r, refresh) {
   draw();
 
   render(menu('clients'),
+    refreshBar('list', () => pullClients(viewSeq, cacheGet('list'), true)),
     el('div', { class: 'title-row' }, el('h1', {}, 'נועצים'), newCaseButton(r)),
     el('p', { class: 'sub' }, 'בחרו נועץ/ת כדי לפתוח את התיק.'),
     newCaseBox,
@@ -354,12 +388,45 @@ async function showClient(email) {
   const seq = ++viewSeq;
   const key = 'client_' + email;
   const cached = cacheGet(key);
-  if (cached) drawClient(cached); else { loading('clients'); window.scrollTo(0, 0); }
-  const r = await (takeAhead(email) || api('clientGet', { email: email }));
+  if (cached) drawClient(cached); else { if (!previewClient(email)) loading('clients'); window.scrollTo(0, 0); }
+  await pullClient(email, seq, cached, takeAhead(email));
+}
+async function pullClient(email, seq, shown, early, keep) {
+  const key = 'client_' + email;
+  const r = await (early ? early.promise : api('clientGet', { email: email }));
   if (seq !== viewSeq) return;
-  if (!r.ok) { if (!r.handled && !cached) render(menu('clients'), backLink(), msgBox(r.message)); return; }
-  cachePut(key, r);
-  if (!cached || !same(cached, r)) drawClient(r, !!cached);
+  if (!r.ok) {
+    if (r.handled) return;
+    if (!shown) render(menu('clients'), backLink(), msgBox(r.message)); else app.prepend(msgBox(r.message));
+    return;
+  }
+  cachePut(key, r, early ? early.at : 0);
+  if (!shown || !same(shown, r)) drawClient(r, !!shown || !!keep); else paintWhen(key);
+}
+// a תיק not seen yet in this tab: what the list already knows, at once, while the rest loads
+function previewClient(email) {
+  const list = cacheGet('list');
+  const c = list && (list.clients || []).filter(x => x.email === email)[0];
+  if (!c) return false;
+  const g = (list.groups || []).filter(x => x[0] === c.group)[0];
+  const facts = [GENDER_WORD[c.gender] || '', g ? (g[2] || g[1]) + ' (' + groupCode(g[0]) + ')' : '', c.age ? 'גיל ' + c.age : ''].concat(c.tags || []).filter(Boolean);
+  const qs = c.qs || [], done = qs.filter(q => q.done).length, wait = qs.length - done;
+  const next = !c.next ? 'טרם נקבעה' : (c.next.kind === 'proc' ? 'עיבוד ללא פגישה ' : 'פגישה ') + c.next.n +
+    (c.next.date ? ' · ' + fmtDay(c.next.date) + (c.next.time ? ' בשעה ' + c.next.time : '') : '');
+  pageKey = ''; pageRefresh = null;
+  render(menu('clients'), el('div', { class: 'top-row' }, backLink()),
+    el('div', { class: 'case-preview' },
+      el('h1', {}, c.name || c.email),
+      el('p', { class: 'sub case-facts' }, facts.join(' · ') || 'עוד אין פרטים'),
+      el('p', { class: 'muted small case-contact' },
+        c.staffName ? 'יועץ/ת מלווה: ' + (c.staff === list.myEmail ? 'אני' : c.staffName) + ' · ' : 'לא שויך/ה ליועץ/ת · ',
+        el('span', { dir: 'ltr' }, c.email),
+        c.registered === false ? ' · טרם נכנס/ה לאתר' : c.lastSeen ? ' · כניסה אחרונה ' + fmtWhen(c.lastSeen) : ''),
+      el('div', { class: 'card preview-facts' },
+        el('p', {}, el('b', {}, 'שאלונים: '), done + ' מולאו · ' + wait + ' פתוחים וטרם מולאו · ' + (c.notYet || []).length + ' לא נפתחו'),
+        el('p', {}, el('b', {}, 'האינטראקציה הבאה: '), next))),
+    el('p', { class: 'loading' }, 'טוען את שאר התיק…'));
+  return true;
 }
 
 let currentClient = null; // the email of the תיק on screen (refreshed when you come back to this tab)
@@ -390,7 +457,8 @@ function drawClient(r, refresh) {
   // text being written survives a refresh of the page (the note, and the meeting fields)
   const drafts = {};
   if (refresh) document.querySelectorAll('textarea[data-keep]').forEach(x => { if (x.value !== x.defaultValue) drafts[x.id] = x.value; });
-  render(menu('clients'), backLink(),
+  render(menu('clients'), el('div', { class: 'top-row' }, backLink(),
+      refreshBar('client_' + c.email, () => pullClient(c.email, viewSeq, cacheGet('client_' + c.email), null, true))),
     el('h1', {}, c.name || c.email),
     el('p', { class: 'sub case-facts' }, facts.join(' · ') || 'עוד אין פרטים'),
     ci.archived ? el('div', { class: 'msg archived-note' }, 'התיק בארכיון מאז ' + ci.archived + '. הוא לא מופיע ברשימת הנועצים.',
@@ -1039,6 +1107,7 @@ async function showStaff() {
   const list = await api('staffList');
   if (seq !== viewSeq) return;
   if (!list.ok) { if (!list.handled) render(menu('staff'), msgBox(list.message)); return; }
+  fetchedAt.staff = Date.now();
 
   const tableBox = el('div');
   drawStaff(tableBox, list.staff);
@@ -1072,6 +1141,12 @@ async function showStaff() {
       el('button', { type: 'button', class: 'btn secondary', onclick: () => { form.hidden = true; openBtn.hidden = false; } }, 'ביטול')));
 
   render(menu('staff'),
+    refreshBar('staff', async () => {
+      const r = await api('staffList');
+      if (pageKey !== 'staff') return;
+      if (!r.ok) { if (!r.handled) addMsg.replaceChildren(msgBox(r.message)); return; }
+      fetchedAt.staff = Date.now(); drawStaff(tableBox, r.staff); paintWhen('staff');
+    }),
     el('h1', {}, 'יועצים'),
     el('p', { class: 'sub' }, 'מי יכול/ה להיכנס לממשק היועצים.'),
     el('div', { class: 'card' }, tableBox, addMsg, openBtn, form));
