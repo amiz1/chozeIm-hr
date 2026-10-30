@@ -35,7 +35,7 @@ async function api(action, data) {
     showLogin(out.message);
     return { ok: false, handled: true };
   }
-  if (out.me) { me = out.me; navName.textContent = me.name || me.email; logoutBtn.hidden = false; }
+  if (out.me) { me = out.me; navName.textContent = me.name || me.email; logoutBtn.hidden = false; paintMenu(); }
   return out;
 }
 
@@ -138,7 +138,7 @@ async function onCredential(resp) {
   const r = await api('hrLogin', { idToken: resp && resp.credential });
   if (!r.ok) { if (!r.handled) showLogin(r.message); return; }
   setToken(r.token);
-  me = { name: r.name, email: r.email };
+  me = { name: r.name, email: r.email, admin: !!r.admin };
   showHome();
 }
 
@@ -162,9 +162,12 @@ function menu(active) {
   const item = (key, label, go) => el('button', {
     type: 'button', class: 'menu-item' + (active === key ? ' on' : ''), 'aria-current': active === key ? 'page' : null, onclick: go
   }, label);
-  return el('nav', { class: 'menu' }, item('clients', 'נועצים', () => showClients()), item('staff', 'יועצים', () => showStaff()),
+  const staff = item('staff', 'יועצים', () => showStaff());
+  staff.dataset.k = 'staff'; staff.hidden = !(me && me.admin); // the יועצים page: admins only
+  return el('nav', { class: 'menu' }, item('clients', 'נועצים', () => showClients()), staff,
     item('settings', 'הגדרות', () => showSettings()));
 }
+function paintMenu() { document.querySelectorAll('.menu-item[data-k=staff]').forEach(b => { b.hidden = !(me && me.admin); }); }
 
 function loading(active) { render(menu(active), el('p', { class: 'loading' }, 'טוען…')); }
 
@@ -234,7 +237,7 @@ function select(id, opts, value) {
   return el('select', { id: id }, opts.map(([v, l]) => el('option', { value: v, selected: v === value }, l)));
 }
 
-let onlyMine = false, clientSort = 'seen';
+let onlyMine = false, clientSort = 'seen', showArchive = false;
 const GENDER_WORD = { f: 'נועצת', m: 'נועץ' };
 // "היום 14:05" / "אתמול" / "3.10.2026"
 function fmtWhen(s) {
@@ -254,6 +257,9 @@ function drawClients(r, refresh) {
   const groupShort = v => { const g = (r.groups || []).filter(x => x[0] === v)[0]; return g ? g[1].split(' · ')[0] : ''; };
   const search = el('input', { type: 'search', class: 'search', placeholder: 'חיפוש לפי שם, אימייל, תגית או יועץ', value: clientSearch, 'aria-label': 'חיפוש נועץ' });
   const mine = el('input', { type: 'checkbox', id: 'onlyMine', checked: onlyMine });
+  const nArch = r.clients.filter(c => c.archived).length;
+  if (!nArch) showArchive = false; // nothing archived (any more): back to the normal list
+  const arch = el('input', { type: 'checkbox', id: 'showArchive', checked: showArchive });
   const sort = select('clientSort', [['seen', 'מיון: כניסה אחרונה'], ['created', 'מיון: הרשמה'], ['name', 'מיון: שם']], clientSort);
   sort.setAttribute('aria-label', 'מיון');
   const tableBox = el('div');
@@ -272,15 +278,16 @@ function drawClients(r, refresh) {
 
   function draw() {
     const q = search.value.trim().toLowerCase();
-    clientSearch = search.value; onlyMine = mine.checked; clientSort = sort.value;
-    let list = r.clients.filter(c => (!onlyMine || c.staff === r.myEmail) && (!q || (c.name || '').toLowerCase().includes(q) || c.email.includes(q) ||
+    clientSearch = search.value; onlyMine = mine.checked; clientSort = sort.value; showArchive = arch.checked;
+    let list = r.clients.filter(c => (showArchive ? !!c.archived : !c.archived) && (!onlyMine || c.staff === r.myEmail) && (!q || (c.name || '').toLowerCase().includes(q) || c.email.includes(q) ||
       (c.staffName || '').toLowerCase().includes(q) || (c.tags || []).some(x => x.toLowerCase().includes(q))));
     const key = c => clientSort === 'seen' ? (c.lastSeen || '') : clientSort === 'created' ? (c.created || '') : '';
     list = list.slice().sort((a, b) => clientSort === 'name' ? (a.name || '').localeCompare(b.name || '', 'he') :
       key(b) > key(a) ? 1 : key(b) < key(a) ? -1 : 0);
-    const base = onlyMine ? r.clients.filter(c => c.staff === r.myEmail).length : r.clients.length;
-    count.textContent = (list.length === base ? base : list.length + ' מתוך ' + base) + ' נועצים' + (onlyMine ? ' שלי' : '');
-    if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, r.clients.length ? 'אין תוצאות.' : 'עדיין אין נועצים רשומים.')); return; }
+    const base = r.clients.filter(c => (showArchive ? !!c.archived : !c.archived) && (!onlyMine || c.staff === r.myEmail)).length;
+    count.textContent = (list.length === base ? base : list.length + ' מתוך ' + base) + ' נועצים' + (onlyMine ? ' שלי' : '') + (showArchive ? ' בארכיון' : '') +
+      (r.admin ? '' : ' · מוצגים הנועצים שלך ואלה שלא שויכו');
+    if (!list.length) { tableBox.replaceChildren(el('p', { class: 'muted' }, showArchive ? 'אין נועצים בארכיון.' : r.clients.length ? 'אין תוצאות.' : 'עדיין אין נועצים רשומים.')); return; }
     const rows = list.map(c => {
       const done = (c.qs || []).filter(x => x.done).length;
       return el('tr', { class: 'clickable', tabindex: '0',
@@ -292,7 +299,7 @@ function drawClients(r, refresh) {
             c.privacy === false ? el('span', { class: 'badge wait' }, 'טרם אישר/ה פרטיות') : null,
           el('div', { class: 'list-meta' }, [GENDER_WORD[c.gender], groupShort(c.group), c.age ? 'גיל ' + c.age : ''].concat(c.tags || []).filter(Boolean).join(' · ')),
           el('div', { class: 'list-meta mail', dir: 'ltr' }, c.email)),
-        el('td', { class: 'staff-cell' }, c.staffName ? el('span', { class: c.staff === r.myEmail ? 'mine' : '' }, c.staff === r.myEmail ? 'אני' : c.staffName) : el('span', { class: 'muted' }, '—')),
+        el('td', { class: 'staff-cell' }, c.staffName ? el('span', { class: c.staff === r.myEmail ? 'mine' : '' }, c.staff === r.myEmail ? 'אני' : c.staffName) : el('span', { class: 'muted small' }, 'לא שויך')),
         el('td', { class: 'seen' }, c.registered === false ? el('span', { class: 'muted' }, '—') : c.lastSeen ? fmtWhen(c.lastSeen) : el('span', { class: 'muted small' }, 'נרשם/ה ' + fmtWhen(c.created))),
         el('td', { class: 'qs-cell' }, (c.qs || []).length ? el('span', { class: 'count' + (done ? ' some' : '') }, done + '/' + c.qs.length) : null, chips(c)),
         el('td', { class: 'next-cell' }, c.next && c.next.date ? el('span', {}, 'פגישה ' + c.next.n + ' · ' + fmtDay(c.next.date) + (c.next.time ? ' · ' + c.next.time : '')) :
@@ -303,14 +310,15 @@ function drawClients(r, refresh) {
         el('th', {}, 'שאלונים', el('span', { class: 'muted small th-hint' }, ' · ', el('span', { class: 'dot inline' }), ' מולא')), el('th', {}, 'הפגישה הבאה'))),
       el('tbody', {}, rows))));
   }
-  search.addEventListener('input', draw); mine.addEventListener('change', draw); sort.addEventListener('change', draw);
+  search.addEventListener('input', draw); mine.addEventListener('change', draw); sort.addEventListener('change', draw); arch.addEventListener('change', draw);
   draw();
 
   render(menu('clients'),
     el('div', { class: 'title-row' }, el('h1', {}, 'נועצים'), newCaseButton(r)),
     el('p', { class: 'sub' }, 'בחרו נועץ/ת כדי לפתוח את התיק.'),
     newCaseBox,
-    el('div', { class: 'card' }, el('div', { class: 'list-tools' }, search, el('label', { class: 'check' }, mine, ' רק שלי'), sort), count, tableBox));
+    el('div', { class: 'card' }, el('div', { class: 'list-tools' }, search, el('label', { class: 'check' }, mine, ' רק שלי'),
+      nArch || showArchive ? el('label', { class: 'check' }, arch, ' ארכיון (' + nArch + ')') : null, sort), count, tableBox));
   if (refresh) { window.scrollTo(0, y); if (hadFocus) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); } }
 }
 
@@ -367,7 +375,11 @@ function drawClient(r, refresh) {
   render(menu('clients'), backLink(),
     el('h1', {}, c.name || c.email),
     el('p', { class: 'sub case-facts' }, facts.join(' · ') || 'עוד אין פרטים'),
-    el('p', { class: 'muted small case-contact' }, ci.staff ? el('span', { class: 'case-staff' }, 'יועץ/ת מלווה: ' + (label(L.staff, ci.staff) || ci.staff) + ' · ') : null,
+    ci.archived ? el('div', { class: 'msg archived-note' }, 'התיק בארכיון מאז ' + ci.archived + '. הוא לא מופיע ברשימת הנועצים.',
+      el('button', { type: 'button', class: 'btn secondary small', onclick: (e) => withBusy(e.currentTarget, () => saveCase(c.email, { archived: false })) }, 'החזרה מהארכיון')) : null,
+    el('p', { class: 'muted small case-contact' }, ci.staff ? el('span', { class: 'case-staff' }, 'יועץ/ת מלווה: ' + (ci.staff === (me && me.email) ? 'אני' : (label(L.staff, ci.staff) || ci.staff)) + ' · ')
+      : el('span', { class: 'case-staff' }, 'לא שויך/ה ליועץ/ת ', el('button', { type: 'button', class: 'btn secondary small assign-me',
+        onclick: (e) => withBusy(e.currentTarget, () => saveCase(c.email, { staff: me.email })) }, 'שיוך אליי'), ' · '),
       el('span', { dir: 'ltr' }, c.email), ci.phone ? el('span', {}, ' · ', el('span', { dir: 'ltr' }, ci.phone)) : null,
       c.registered === false ? el('span', { class: 'badge wait not-reg' }, 'טרם נרשם/ה לאתר') : ' · נרשם/ה ' + (c.created || '—'),
       ci.consent ? ' · הסכמה לשמירת מידע ' + ci.consentAt : '',
@@ -383,7 +395,8 @@ function drawClient(r, refresh) {
       el('div', { class: 'qlist' }, others.map(q => questionnaireRow(q, c)))) : null,
     cvRow(r.cv, c),
     el('div', { class: 'tabs', role: 'group', 'aria-label': 'חלקי התיק' }, tabBtns),
-    tabBox);
+    tabBox,
+    manageCase(r));
   Object.keys(drafts).forEach(id => { const x = document.getElementById(id); if (x) x.value = drafts[id]; });
   window.scrollTo(0, refresh ? y : 0);
 }
@@ -515,6 +528,71 @@ function meetingCard(r, ms, n) {
     el('div', { class: 'row' }, save, msg));
 }
 
+// ---------- managing the תיק: archive, and (admins) deleting everything ----------
+function manageCase(r) {
+  const c = r.client, ci = r.caseInfo || {};
+  const arch = el('button', { type: 'button', class: 'btn secondary small', id: 'archiveBtn', onclick: (e) => withBusy(e.currentTarget, async () => {
+    const ok = await saveCase(c.email, { archived: !ci.archived });
+    if (ok && !ci.archived) { cacheDrop('list'); showClients(); }
+  }) }, ci.archived ? 'החזרה מהארכיון' : 'העברה לארכיון');
+  return el('details', { class: 'case-manage' }, el('summary', {}, 'ניהול התיק'),
+    el('div', { class: 'card' },
+      el('div', { class: 'manage-row' }, el('div', {}, el('b', {}, 'ארכיון'),
+        el('p', { class: 'hint' }, 'התיק יוסתר מרשימת הנועצים, וכל המידע נשמר. אפשר להחזיר אותו בכל עת (בסימון "ארכיון" ברשימה). לנועץ/ת לא משתנה דבר.')), arch),
+      me && me.admin ? el('div', { class: 'manage-row danger' }, el('div', {}, el('b', {}, 'מחיקה מלאה'),
+        el('p', { class: 'hint' }, 'מחיקת כל המידע על הנועץ/ת, לפי בקשה (חוק הגנת הפרטיות). אי אפשר לבטל. למנהלים בלבד, ודורש כניסה מחדש עם Google.')),
+        el('button', { type: 'button', class: 'btn danger small', id: 'deleteBtn', onclick: () => deleteDialog(r) }, 'מחיקה מלאה…')) : null));
+}
+
+function deleteDialog(r) {
+  const c = r.client, name = (c.name || c.email).trim().replace(/\s+/g, ' ');
+  const dlg = el('dialog', { class: 'qmodal del-modal', 'aria-label': 'מחיקה מלאה' });
+  const msg = el('div', { 'aria-live': 'polite' });
+  const gbox = el('div', { class: 'gbtn' });
+  const typed = el('input', { type: 'text', id: 'delConfirm', autocomplete: 'off', 'aria-label': 'השם המלא' });
+  const step2 = el('div', { class: 'del-step2', hidden: true }, el('p', {}, el('b', {}, 'שלב אחרון: '), 'כניסה מחדש עם חשבון ה-Google שלך (' + me.email + '). המחיקה מתבצעת מיד אחרי האימות.'), gbox);
+  const close = () => dlg.close();
+  dlg.addEventListener('close', () => dlg.remove());
+  typed.addEventListener('input', () => {
+    const okName = typed.value.trim().replace(/\s+/g, ' ') === name;
+    step2.hidden = !okName;
+    if (okName && !gbox.firstChild) drawReauth();
+  });
+  function drawReauth() {
+    if (!window.google || !google.accounts || !google.accounts.id) { gbox.append(msgBox('הכניסה של Google לא נטענה. רעננו את הדף ונסו שוב.')); return; }
+    google.accounts.id.initialize({ client_id: CFL_HR_CLIENT_ID, callback: onReauth, ux_mode: 'popup', auto_select: false, cancel_on_tap_outside: true });
+    google.accounts.id.renderButton(gbox, { theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'rectangular', locale: 'he', width: 280 });
+  }
+  async function onReauth(resp) {
+    msg.replaceChildren(el('p', { class: 'muted' }, 'מוחקים…'));
+    gbox.replaceChildren(); typed.disabled = true;
+    const res = await api('clientDelete', { email: c.email, idToken: resp && resp.credential, confirm: typed.value });
+    if (!res.ok) {
+      if (!res.handled) msg.replaceChildren(msgBox(res.message || 'המחיקה לא בוצעה.'));
+      typed.disabled = false; drawReauth(); return;
+    }
+    cacheClear();
+    dlg.replaceChildren(el('div', { class: 'del-body' }, el('h2', {}, 'המידע נמחק'),
+      el('p', {}, 'כל המידע על ' + name + ' נמחק מהמערכת. נשמרו רק השם, תאריך ההרשמה ותאריך המחיקה (בלשונית "מחיקות").'),
+      el('div', { class: 'row' }, el('button', { type: 'button', class: 'btn primary', id: 'delDone', onclick: () => { close(); showClients(); } }, 'חזרה לרשימת הנועצים'))));
+  }
+  dlg.append(
+    el('div', { class: 'mhead' }, el('div', {}, el('div', { class: 'mtitle' }, 'מחיקה מלאה: ' + name), el('div', { class: 'msub', dir: 'ltr' }, c.email)),
+      el('button', { type: 'button', class: 'mclose', 'aria-label': 'סגירה', onclick: close }, '✕')),
+    el('div', { class: 'del-body' },
+      el('p', {}, 'יימחקו לצמיתות:'),
+      el('ul', {}, ['הפרטים וההרשמה לאתר הנועצים (הנועץ/ת לא יוכל/תוכל להיכנס עוד)', 'כל התשובות לשאלונים', 'קורות החיים, כולל הקובץ ב-Drive',
+        'התיק: פרטים, רשמים, פגישות, שיחות עם Claude ומשובים', 'מה שנשלח לדף של Claude ועוד לא נקלט'].map(x => el('li', {}, x))),
+      el('p', { class: 'muted small' }, 'נשמרים רק: השם, תאריך ההרשמה ותאריך המחיקה. מיילים שכבר נשלחו לנועץ/ת, ושיחות שנשמרו בחשבון Claude של היועץ/ת, לא נמחקים מכאן.'),
+      el('p', { class: 'del-warn' }, 'אי אפשר לבטל את המחיקה.'),
+      field('להמשך, הקלידו את השם המלא: ' + name, typed),
+      step2, msg));
+  document.body.append(dlg);
+  dlg.showModal();
+  typed.focus();
+  return dlg;
+}
+
 // ---------- emails to the נועץ ----------
 function openMailRow(r) {
   const c = r.client, E = r.entries || {};
@@ -550,7 +628,7 @@ function caseDetails(r, L) {
     group: select('c_group', [['', 'לא נבחרה']].concat(L.groups), ci.group || ''),
     note: el('textarea', { id: 'c_note', rows: '3' }, ci.note || ''),
     consent: el('input', { type: 'checkbox', id: 'c_consent', checked: !!ci.consent }),
-    staff: select('c_staff', [['', 'לא נבחר/ה']].concat(ci.staff && !(L.staff || []).some(s => s[0] === ci.staff) ? [[ci.staff, ci.staff]] : []).concat(L.staff || []), ci.staff || '')
+    staff: !(me && me.admin) ? null : select('c_staff', [['', 'לא נבחר/ה']].concat(ci.staff && !(L.staff || []).some(s => s[0] === ci.staff) ? [[ci.staff, ci.staff]] : []).concat(L.staff || []), ci.staff || '')
   };
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירת הפרטים');
   return el('details', { class: 'case-edit' }, el('summary', {}, 'עריכת פרטים'),
@@ -558,9 +636,9 @@ function caseDetails(r, L) {
       e.preventDefault(); msg.replaceChildren();
       await withBusy(btn, () => saveCase(c.email, { name: f.name.value, gender: f.gender.value, phone: f.phone.value, fac: f.fac.value,
         tags: f.tags.value, age: f.age.value, years: f.years.value, kind: f.kind.value, group: f.group.value, note: f.note.value,
-        consent: f.consent.checked, staff: f.staff.value }, msg));
+        consent: f.consent.checked, staff: f.staff ? f.staff.value : undefined }, msg));
     } },
-      el('div', { class: 'grid2' }, field('שם', f.name), field('יועץ/ת מלווה', f.staff), field('נועצת או נועץ', f.gender), field('טלפון', f.phone), field('מי זה/זו', f.kind),
+      el('div', { class: 'grid2' }, field('שם', f.name), f.staff ? field('יועץ/ת מלווה', f.staff) : null, field('נועצת או נועץ', f.gender), field('טלפון', f.phone), field('מי זה/זו', f.kind),
         field('קבוצה', f.group), field('תחום / פקולטה', f.fac), field('תגיות (מפרידים בפסיק)', f.tags),
         el('div', { class: 'grid2' }, field('גיל', f.age), field('שנות ניסיון', f.years))),
       field('הערה כללית', f.note),
@@ -990,14 +1068,28 @@ async function showStaff() {
 }
 
 function drawStaff(box, staff) {
-  const rows = staff.map(s => el('tr', {},
-    el('td', {}, s.name || '—'),
-    el('td', { dir: 'ltr', class: 'mail' }, s.email),
-    el('td', {}, s.addedBy ? s.addedBy : 'הוזנ/ה ידנית'),
-    el('td', {}, s.lastLogin || '—')));
+  const note = el('p', { class: 'saved-note', 'aria-live': 'polite' });
+  const rows = staff.map(s => {
+    const mine = me && s.email === me.email;
+    const cb = el('input', { type: 'checkbox', class: 'admin-cb', checked: s.admin, disabled: s.owner || mine,
+      'aria-label': 'מנהל/ת – ' + (s.name || s.email), title: s.owner ? 'בעל/ת המערכת: תמיד מנהל/ת' : mine ? 'אי אפשר לשנות את עצמך' : '' });
+    cb.addEventListener('change', async () => {
+      cb.disabled = true;
+      const r = await api('staffSetAdmin', { email: s.email, admin: cb.checked });
+      if (!r.ok) { cb.checked = !cb.checked; cb.disabled = false; if (!r.handled) note.textContent = r.message; return; }
+      drawStaff(box, r.staff);
+    });
+    return el('tr', {},
+      el('td', {}, s.name || '—'),
+      el('td', { dir: 'ltr', class: 'mail' }, s.email),
+      el('td', {}, el('label', { class: 'check' }, cb, s.owner ? ' בעלים' : '')),
+      el('td', {}, s.addedBy ? s.addedBy : 'הוזנ/ה ידנית'),
+      el('td', {}, s.lastLogin || '—'));
+  });
   box.replaceChildren(el('div', { class: 'table-wrap' }, el('table', { class: 'staff' },
-    el('thead', {}, el('tr', {}, el('th', {}, 'שם'), el('th', {}, 'אימייל'), el('th', {}, 'נוסף/ה על ידי'), el('th', {}, 'כניסה אחרונה'))),
-    el('tbody', {}, rows))));
+    el('thead', {}, el('tr', {}, el('th', {}, 'שם'), el('th', {}, 'אימייל'), el('th', {}, 'מנהל/ת'), el('th', {}, 'נוסף/ה על ידי'), el('th', {}, 'כניסה אחרונה'))),
+    el('tbody', {}, rows))),
+    el('p', { class: 'hint' }, 'מנהל/ת רואה את כל הנועצים ואת דף היועצים, ויכול/ה למחוק נועץ/ת. יועץ/ת אחר/ת רואה רק את הנועצים שלו/ה ואת אלה שלא שויכו.'), note);
 }
 
 // ---------- settings: my לשון, my Claude link, the instructions for Claude ----------

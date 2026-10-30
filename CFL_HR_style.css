@@ -300,3 +300,21 @@ textarea:focus, select:focus { outline: 2px solid var(--olive); outline-offset: 
 .fb-edit { width: 100%; box-sizing: border-box; font: inherit; font-size: 15px; line-height: 1.7; padding: 10px 12px; border: 1px solid var(--rule); margin: 6px 0 10px; }
 .fb-sent { margin-top: 12px; }
 .fb-sent-item { border-top: 1px solid var(--rule); padding: 8px 0; }
+
+/* archive and deletion */
+.archived-note { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; border-right: 3px solid var(--gold); }
+.case-manage { margin-top: 36px; }
+.case-manage > summary { cursor: pointer; color: var(--mute); font-size: 15px; }
+.manage-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 0; }
+.manage-row + .manage-row { border-top: 1px solid var(--rule); }
+.manage-row > div { flex: 1 1 280px; }
+.manage-row .hint { margin: 4px 0 0; }
+.btn.danger { background: var(--clay); color: #fff; border: 1px solid var(--clay); padding: 11px 22px; }
+.btn.danger.small, .btn.small.danger { padding: 6px 14px; }
+dialog.del-modal { height: auto; max-height: 90vh; max-width: 560px; }
+.del-body { padding: 16px 20px 20px; overflow: auto; }
+.del-body ul { margin: 4px 0 12px; padding-inline-start: 20px; }
+.del-warn { color: var(--clay); font-weight: 700; }
+.del-step2 { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.assign-me { margin-inline-start: 4px; }
+.del-modal .mhead { border-right-color: var(--clay); }
