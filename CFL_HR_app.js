@@ -588,6 +588,12 @@ async function openPrep(r, n, btn, msg) {
   let res;
   await withBusy(btn, async () => { res = await api('claudePrepare', { email: c.email, meet: n }); });
   if (!res || !res.ok) { if (w) w.close(); if (res && !res.handled) msg.append(msgBox(res.message)); return; }
+  // a script from before "הכנה לפגישה" ignores the meeting and prepares the regular תיק: say so instead of opening it
+  if (res.meet !== n) {
+    if (w) w.close();
+    msg.append(msgBox('הסקריפט בשרת עדיין בגרסה ישנה, שלא מכירה את "הכנה לפגישה". צריך להדביק בסקריפט של אתר היועצים את הקבצים החדשים, להריץ setup, ולפרסם גרסה חדשה (Deploy ← Manage deployments ← New version).'));
+    return;
+  }
   const link = (res.url || r.claudeUrl) + '#' + res.req;
   if (w) { try { w.opener = null; w.location.href = link; } catch (e) { w = null; } }
   msg.append(el('span', { class: 'small' }, w ? 'נפתח בלשונית חדשה. ' : '',
