@@ -374,3 +374,10 @@ table.clients .muted { color: var(--mute); }
 textarea.fresh { animation: freshtext 2.4s ease-out; }
 @keyframes freshtext { from { background: #eef5e6; } }
 @media (prefers-reduced-motion: reduce) { .live-dot, textarea.fresh { animation: none; } }
+
+/* Claude writing in its own tab: a placeholder in place of the text, and errors it reports */
+.claude-wait { border: 1px dashed var(--olive-l); border-radius: 8px; padding: 18px 14px; color: var(--ink); background: #f7f8f2; margin: 6px 0; }
+.claude-error { margin: 6px 0; }
+.prep .wait-note { margin: 4px 0 8px; }
+.claude-closed { margin-top: 6px; }
+.claude-team-link a { word-break: break-all; }

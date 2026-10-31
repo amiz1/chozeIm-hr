@@ -651,16 +651,26 @@ function interactionCard(r, ms, n) {
   const cT = T[field] && T[field].text ? T[field] : null;
   const cMsg = el('div', { class: 'prep-msg', 'aria-live': 'polite' });
   const cName = meet ? (first ? 'ניתוח מלא לקראת הפגישה הראשונה' : 'הכנה לפגישה') : 'תובנות Claude (לא חובה)';
-  const cBtn = el('button', { type: 'button', class: cT ? 'link-btn small prep-claude' : 'btn secondary prep-claude', onclick: () => openPrep(r, n, cBtn, cMsg, field) },
-    cT ? 'עדכון ב-Claude' : meet ? (first ? 'ניתוח מלא עם Claude' : 'הכנה לפגישה עם Claude') : 'עיבוד עם Claude');
+  // the newest Claude page opened for this interaction (still readable): "המשך מאיפה שהפסקנו" reopens it as it was
+  const last = (r.claudeLast || {})[n] || null;
+  const waiting = prepWait && prepWait.email === c.email && prepWait.n === n && prepWait.field === field ? prepWait : null;
+  const firstLabel = meet ? (first ? 'ניתוח מלא עם Claude' : 'הכנה לפגישה עם Claude') : 'עיבוד עם Claude';
+  const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude' + (last ? ' prep-continue' : ''),
+    onclick: () => last ? openContinue(r, n, last.req, cMsg, field) : openPrep(r, n, cBtn, cMsg, field) },
+    last ? 'המשך ב-Claude מאיפה שהפסקנו' : cT ? 'עדכון ב-Claude' : firstLabel);
+  const fresh = last ? el('button', { type: 'button', class: 'link-btn small prep-fresh', onclick: (e) => openPrep(r, n, e.currentTarget, cMsg, field) },
+    'פתיחה מחדש עם התיק המעודכן') : null;
   const claudePart = el('div', { class: 'mtg-part prep' }, el('h4', {}, cName,
       cT ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null),
-    cT ? el('textarea', { id: 'm_' + field, 'data-keep': '1', rows: '9' }, cT.text) : null,
-    cT ? null : el('p', { class: 'hint' }, meet ? (first ? 'Claude קורא את שאלון הכניסה ואת קורות החיים, וכותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא. הטקסט נשמר כאן.'
-      : 'Claude כותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא: מה השתנה, מה חדש בתשובות, מה לבדוק. הטקסט נשמר כאן.')
-      : 'אם רוצים: Claude עובר על מה שהתקבל, ומציע אם לשלוח עוד הכנה לפני הפגישה. הטקסט נשמר כאן.'),
-    el('div', { class: 'row' }, cBtn, cMsg));
-  if (prepWait && prepWait.email === c.email && prepWait.n === n && prepWait.field === field) cMsg.append(waitNote(prepWait));
+    m.done ? null : cMsg,
+    cT ? el('textarea', { id: 'm_' + field, 'data-keep': '1', rows: '9' }, cT.text)
+      : waiting && !m.done ? el('div', { class: 'claude-wait', id: 'claudeWait' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'Claude כותב בלשונית אחרת. הטקסט יופיע כאן כשיסיים.') : null,
+    m.done ? el('p', { class: 'hint claude-closed' }, cT ? 'האינטראקציה התקיימה, ולכן Claude כבר לא כותב אליה. זו הגרסה האחרונה.' : 'לא נכתב טקסט עם Claude באינטראקציה הזו.')
+      : cT || waiting ? null : el('p', { class: 'hint' }, meet ? (first ? 'Claude קורא את שאלון הכניסה ואת קורות החיים, וכותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא. הטקסט נשמר כאן.'
+        : 'Claude כותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא: מה השתנה, מה חדש בתשובות, מה לבדוק. הטקסט נשמר כאן.')
+        : 'אם רוצים: Claude עובר על מה שהתקבל, ומציע אם לשלוח עוד הכנה לפני הפגישה. הטקסט נשמר כאן.'),
+    m.done ? null : el('div', { class: 'row' }, cBtn, fresh));
+  if (waiting && !m.done) cMsg.append(waitNote(waiting));
 
   const TEXTS = meet ? [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות', 'מה סוכם, ומה הכיוון להמשך']]
     : [['decisions', 'מה הוחלט', 'מה עולה ממה שהתקבל, ומה עושים עכשיו']];
@@ -750,11 +760,18 @@ function interactionCard(r, ms, n) {
     el('div', { class: 'row' }, save, msg));
 }
 
-let prepWait = null; // { email, n, field, until, was }: waiting for what Claude writes into an interaction
+let prepWait = null; // { email, n, field, req, started, was, link, ... }: waiting for what Claude writes into an interaction
+function startWait(r, n, field, req, link, opened) {
+  const was = (((r.entries || {}).meetTexts || {})[n] || {})[field];
+  prepWait = { email: r.client.email, n: n, field: field, req: req, started: Date.now(), until: Date.now() + 40 * 60000,
+    was: was ? was.at + was.text : '', link: link, opened: opened, got: 0, state: '', next: 0 };
+  meetSel[r.client.email] = n;
+  drawClient(r, true);
+}
 async function openPrep(r, n, btn, msg, field) {
   const c = r.client;
   msg.replaceChildren();
-  if (!r.claudeUrl) { msg.append(msgBox('קודם צריך להגדיר את הקישור לדף Claude שלך, בהגדרות.')); return; }
+  if (!r.claudeUrl) { msg.append(msgBox('עוד לא הוגדר הקישור לדף Claude של הצוות. מנהל/ת מגדיר/ה אותו בהגדרות.')); return; }
   let w = null;
   try { w = window.open('', '_blank'); } catch (e) { w = null; }
   if (w) { try { w.document.title = 'מכינים את התיק…'; w.document.body.textContent = 'מכינים את התיק ל-Claude…'; } catch (e) { } }
@@ -769,21 +786,34 @@ async function openPrep(r, n, btn, msg, field) {
   }
   const link = (res.url || r.claudeUrl) + '#' + res.req;
   if (w) { try { w.opener = null; w.location.href = link; } catch (e) { w = null; } }
-  const was = (((r.entries || {}).meetTexts || {})[n] || {})[field];
-  prepWait = { email: c.email, n: n, field: field, started: Date.now(), until: Date.now() + 40 * 60000, was: was ? was.at + was.text : '',
-    link: link, opened: !!w, got: 0, oldPage: false, next: 0 };
-  msg.replaceChildren(waitNote(prepWait));
+  r.claudeLast = Object.assign({}, r.claudeLast, { [n]: { req: res.req, at: Date.now() } });
+  cachePut('client_' + c.email, r);
+  startWait(r, n, field, res.req, link, !!w);
 }
-// under the Claude button while Claude works: a link to the page, and that each version Claude saves shows up here
+// "המשך מאיפה שהפסקנו": the same Claude page again, with what was written and corrected there (nothing is prepared again)
+function openContinue(r, n, req, msg, field) {
+  msg.replaceChildren();
+  if (!r.claudeUrl) { msg.append(msgBox('עוד לא הוגדר הקישור לדף Claude של הצוות. מנהל/ת מגדיר/ה אותו בהגדרות.')); return; }
+  const link = r.claudeUrl + '#' + req;
+  let w = null;
+  try { w = window.open(link, '_blank', 'noopener'); } catch (e) { w = null; }
+  startWait(r, n, field, req, link, !!w || true);
+}
+// above the text while Claude works in its own tab: what it is doing, and any error it hit
 function waitNote(w) {
   const box = el('div', { class: 'wait-note small' });
+  const open = el('a', { href: w.link, target: '_blank', rel: 'noopener', class: 'claude-link' }, 'פתיחת דף Claude');
+  const err = /^error:/.test(w.state) ? w.state.slice(6) : '';
+  if (err) {
+    box.append(el('div', { class: 'msg error claude-error', role: 'alert' }, el('b', {}, 'Claude לא סיים: '), err, ' ', open));
+    return box;
+  }
   box.append(el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
-    w.got ? 'Claude שמר גרסה חדשה ' + fmtWhen(w.gotAt) + '. תיקון שתכתבו ב-Claude יחליף את הטקסט כאן. '
-      : 'Claude כותב בלשונית ' + (w.opened ? 'שנפתחה' : 'של Claude') + '. כשיסיים, הטקסט יופיע כאן מעצמו. ',
-    el('a', { href: w.link, target: '_blank', rel: 'noopener', class: 'claude-link' }, w.opened ? 'לא נפתח? לחצו כאן' : 'פתיחה ב-Claude'));
-  if (w.oldPage) box.append(msgBox('הקישור לדף Claude בהגדרות שלך מוביל לגרסה ישנה של הדף (היא מנהלת שיחה, ולא שומרת כאן). צריך להעתיק את הדף החדש ולעדכן את הקישור בהגדרות.'));
-  else if (!w.got && Date.now() - w.started > 4 * 60000) box.append(el('p', { class: 'hint' },
-    'עדיין לא נשמר טקסט. אם בלשונית של Claude מופיעה שיחה ולא טקסט אחד עם "שמור בתיק", הקישור בהגדרות מוביל לדף ישן.'));
+    w.state === 'writing' ? 'Claude כותב בלשונית אחרת. ' + (w.got ? 'הגרסה החדשה תחליף את הטקסט כאן כשיסיים. ' : 'הטקסט יופיע כאן כשיסיים. ')
+      : w.got ? 'Claude שמר גרסה חדשה ' + fmtWhen(w.gotAt) + '. תיקון שתכתבו בלשונית של Claude יחליף את הטקסט כאן. '
+      : 'נפתחה לשונית של Claude, והוא מתחיל לכתוב שם. אפשר להישאר כאן. ', open);
+  if (!w.got && w.state !== 'writing' && Date.now() - w.started > 90000) box.append(el('p', { class: 'hint' },
+    'Claude עוד לא התחיל לכתוב. ייתכן שהלשונית שלו מחכה לאישור (גישה ל-Google Sheets או ל-Claude): עברו אליה ואשרו.'));
   return box;
 }
 function paintWait() {
@@ -803,10 +833,11 @@ setInterval(async () => {
   let r;
   try { r = await api('meetText', { email: w.email, n: w.n }); } finally { prepBusy = false; }
   if (!r || !r.ok || prepWait !== w || currentClient !== w.email) return;
-  w.oldPage = !!r.oldPage;
+  // what the Claude page reported (only for this request, and only since it was opened now)
+  if (r.claude && r.claude.req === w.req && r.claude.stateMs >= w.started - 5000 && r.claude.state !== 'done') w.state = r.claude.state;
   const p = r[w.field];
   if (p && p.at + p.text !== w.was) {
-    w.was = p.at + p.text; w.got++; w.gotAt = p.at; w.until = Date.now() + 40 * 60000; // keep watching: a correction rewrites it again
+    w.was = p.at + p.text; w.got++; w.gotAt = p.at; w.state = ''; w.until = Date.now() + 40 * 60000; // keep watching: a correction rewrites it again
     cacheDrop('client_' + w.email);
     const box = document.getElementById('m_' + w.field);
     if (box && meetSel[w.email] === w.n) { // on screen: just the text changes
@@ -1271,7 +1302,8 @@ async function showSettings() {
   if (!s.ok || !g.ok) { const bad = !s.ok ? s : g; if (!bad.handled) render(menu('settings'), msgBox(bad.message)); return; }
   const msg = el('div');
   const gender = radios('s_gender', [['f', 'יועצת (נקבה)'], ['m', 'יועץ (זכר)']], s.settings.gender);
-  const link = el('input', { type: 'url', id: 's_link', dir: 'ltr', value: s.settings.claudeUrl, placeholder: 'https://claude.ai/artifact/…' });
+  const canSet = !!s.settings.canSetClaude;
+  const link = canSet ? el('input', { type: 'url', id: 's_link', dir: 'ltr', value: s.settings.claudeUrl, placeholder: 'https://claude.ai/artifact/…' }) : null;
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירה');
   const guideBox = el('div');
   drawGuides(guideBox, g);
@@ -1279,15 +1311,19 @@ async function showSettings() {
     el('form', { class: 'card', onsubmit: async (e) => {
       e.preventDefault(); msg.replaceChildren();
       await withBusy(btn, async () => {
-        const res = await api('mySettings', { set: true, gender: gender.value(), claudeUrl: link.value });
+        const res = await api('mySettings', canSet ? { set: true, gender: gender.value(), claudeUrl: link.value } : { set: true, gender: gender.value() });
         if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
         msg.append(msgBox('נשמר.', 'success'));
       });
     } },
       el('h2', {}, 'שלי'),
       el('div', { class: 'field' }, el('span', {}, 'בטקסטים ש-Claude כותב בשמי, אני כותב/ת בלשון'), gender.node),
-      field('הקישור לדף Claude שלי', link),
-      el('p', { class: 'hint' }, 'הכתובת של דף "חוזה עם החיים · Claude" בחשבון Claude שלך. פותחים את הדף ב-claude.ai ומעתיקים את הכתובת.'),
+      el('h2', {}, 'דף Claude של הצוות'),
+      canSet ? field('הקישור לדף Claude (אחד לכל הצוות)', link)
+        : el('p', { class: 'claude-team-link' }, s.settings.claudeUrl ? el('a', { href: s.settings.claudeUrl, target: '_blank', rel: 'noopener', dir: 'ltr' }, s.settings.claudeUrl)
+          : el('span', { class: 'muted' }, 'עוד לא הוגדר. מנהל/ת מגדיר/ה אותו כאן.')),
+      el('p', { class: 'hint' }, 'כל היועצים עובדים עם אותו דף, ובעלת הדף יכולה לעדכן אותו לכולם. כדי שהדף ייפתח לך: הוא צריך להיות משותף עם חשבון Claude שלך, ו-Google Sheets צריך להיות מחובר בחשבון הזה.' +
+        (canSet ? ' את הקישור מעתיקים מהדף ב-claude.ai.' : '')),
       msg, el('div', { class: 'row' }, btn)),
     guideBox);
 }
@@ -1295,7 +1331,6 @@ async function showSettings() {
 function drawGuides(box, g) {
   const msg = el('div');
   const text = el('textarea', { id: 'g_text', rows: '2', placeholder: 'למשל: לכתוב בשפה פשוטה יותר, בלי מילים גבוהות' });
-  const scope = radios('g_scope', [['shared', 'לכל היועצים'], ['me', 'רק לי']], 'shared');
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'הוספה');
   const item = (x) => el('div', { class: 'guide' }, el('span', {}, x.text), el('span', { class: 'muted small' }, ' · ' + x.byName + ' · ' + x.at),
     el('button', { type: 'button', class: 'link-btn small', onclick: async () => {
@@ -1307,16 +1342,15 @@ function drawGuides(box, g) {
     e.preventDefault(); msg.replaceChildren();
     if (!text.value.trim()) return;
     await withBusy(btn, async () => {
-      const res = await api('guideAdd', { text: text.value, scope: scope.value() });
+      const res = await api('guideAdd', { text: text.value });
       if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
       drawGuides(box, res);
     });
   } },
     el('h2', {}, 'מה לימדנו את Claude'),
-    el('p', { class: 'hint' }, 'הנחיות קבועות. Claude פועל לפיהן בכל ניתוח ובכל משוב. אפשר להוסיף גם מתוך דף Claude.'),
-    el('h3', {}, 'לכל היועצים'), g.shared.length ? g.shared.map(item) : el('p', { class: 'muted small' }, 'אין עדיין.'),
-    el('h3', {}, 'רק שלי'), g.mine.length ? g.mine.map(item) : el('p', { class: 'muted small' }, 'אין עדיין.'),
-    el('h3', {}, 'הנחיה חדשה'), text, scope.node, msg, el('div', { class: 'row' }, btn)));
+    el('p', { class: 'hint' }, 'הנחיות קבועות לכל הצוות: Claude פועל לפיהן בכל טקסט שהוא כותב, לכל יועץ/ת.'),
+    g.shared.length ? g.shared.map(item) : el('p', { class: 'muted small' }, 'אין עדיין.'),
+    el('h3', {}, 'הנחיה חדשה'), text, msg, el('div', { class: 'row' }, btn)));
 }
 
 // ===================== Start =====================
