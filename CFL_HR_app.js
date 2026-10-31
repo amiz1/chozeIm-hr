@@ -462,7 +462,8 @@ function previewClient(email) {
 }
 
 let currentClient = null; // the email of the תיק on screen (refreshed when you come back to this tab)
-let qsOpen = false; // "השאלונים" open or closed (kept while moving between תיקים)
+let qsOpen = false;
+let m1Open = true; // the built-in analysis in the first meeting: open or folded (kept while moving between תיקים) // "השאלונים" open or closed (kept while moving between תיקים)
 
 function drawClient(r, refresh) {
   const y = window.scrollY;
@@ -614,7 +615,11 @@ function inputsPart(r, ms, n) {
   const c = r.client, E = r.entries || {}, A = E.taskAnswers || {};
   const byId = {}; r.questionnaires.forEach(q => { byId[q.id] = q; });
   const prev = n > 1 ? ms[n - 2] : null;
-  const qs = prev ? prev.given.map(id => byId[id]).filter(Boolean) : r.questionnaires.filter(q => q.open || q.sentAt);
+  // only what this interaction is about: given at the end of the one before it (the first meeting: the intake),
+  // and what was opened outside the interactions while it was the next one
+  const ids = prev ? prev.given.slice() : ['intake'];
+  (ms[n - 1].extra || []).forEach(id => { if (ids.indexOf(id) === -1) ids.push(id); });
+  const qs = ids.map(id => byId[id]).filter(Boolean);
   const tasks = prev ? prev.tasks : [];
   const li = qs.map(q => el('li', { class: q.sentAt ? 'done' : '' },
     el('span', { class: 'dot' }), el('span', { class: 'qt' }, q.title),
@@ -650,11 +655,13 @@ function interactionCard(r, ms, n) {
   const field = meet ? 'prep' : 'insight';
   const cT = T[field] && T[field].text ? T[field] : null;
   const cMsg = el('div', { class: 'prep-msg', 'aria-live': 'polite' });
-  const cName = meet ? (first ? 'ניתוח מלא לקראת הפגישה הראשונה' : 'הכנה לפגישה') : 'תובנות Claude (לא חובה)';
+  const cvOnly = meet && first; // the first meeting: the built-in analysis (below), and Claude only for what the CV adds
+  const cName = meet ? (cvOnly ? 'עדכון לפי קורות החיים (Claude, לא חובה)' : 'הכנה לפגישה') : 'תובנות Claude (לא חובה)';
   // the newest Claude page opened for this interaction (still readable): "המשך מאיפה שהפסקנו" reopens it as it was
   const last = (r.claudeLast || {})[n] || null;
   const waiting = prepWait && prepWait.email === c.email && prepWait.n === n && prepWait.field === field ? prepWait : null;
-  const firstLabel = meet ? (first ? 'ניתוח מלא עם Claude' : 'הכנה לפגישה עם Claude') : 'עיבוד עם Claude';
+  const firstLabel = meet ? (cvOnly ? 'עדכון לפי קורות החיים עם Claude' : 'הכנה לפגישה עם Claude') : 'עיבוד עם Claude';
+  const noCv = cvOnly && !r.cv && !cT && !last; // nothing for Claude to add yet
   const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude' + (last ? ' prep-continue' : ''),
     onclick: () => last ? openContinue(r, n, last.req, cMsg, field) : openPrep(r, n, cBtn, cMsg, field) },
     last ? 'המשך ב-Claude מאיפה שהפסקנו' : cT ? 'עדכון ב-Claude' : firstLabel);
@@ -666,11 +673,19 @@ function interactionCard(r, ms, n) {
     cT ? el('textarea', { id: 'm_' + field, 'data-keep': '1', rows: '9' }, cT.text)
       : waiting && !m.done ? el('div', { class: 'claude-wait', id: 'claudeWait' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'Claude כותב בלשונית אחרת. הטקסט יופיע כאן כשיסיים.') : null,
     m.done ? el('p', { class: 'hint claude-closed' }, cT ? 'האינטראקציה התקיימה, ולכן Claude כבר לא כותב אליה. זו הגרסה האחרונה.' : 'לא נכתב טקסט עם Claude באינטראקציה הזו.')
-      : cT || waiting ? null : el('p', { class: 'hint' }, meet ? (first ? 'Claude קורא את שאלון הכניסה ואת קורות החיים, וכותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא. הטקסט נשמר כאן.'
+      : cT || waiting ? null : el('p', { class: 'hint' }, meet ? (cvOnly ? (noCv ? 'עוד לא הועלו קורות חיים. כשיועלו, Claude יוכל לכתוב מה הם מוסיפים לניתוח של שאלון הכניסה.'
+          : 'Claude קורא את קורות החיים לצד שאלון הכניסה, וכותב רק מה הם מוסיפים או משנים בניתוח. הטקסט נשמר כאן.')
         : 'Claude כותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא: מה השתנה, מה חדש בתשובות, מה לבדוק. הטקסט נשמר כאן.')
         : 'אם רוצים: Claude עובר על מה שהתקבל, ומציע אם לשלוח עוד הכנה לפני הפגישה. הטקסט נשמר כאן.'),
-    m.done ? null : el('div', { class: 'row' }, cBtn, fresh));
+    m.done || noCv ? null : el('div', { class: 'row' }, cBtn, fresh));
   if (waiting && !m.done) cMsg.append(waitNote(waiting));
+  // the first meeting: the built-in "ניתוח מלא" of the intake (with "ניתוב וסימנים"), inside the card, foldable
+  const intake = cvOnly ? r.questionnaires.filter(q => q.id === 'intake')[0] : null;
+  const analysisPart = !cvOnly ? null : el('details', { class: 'mtg-part m1-analysis', open: m1Open },
+    el('summary', {}, el('h4', {}, 'ניתוח מלא של שאלון הכניסה'), el('span', { class: 'muted small' }, ' · ניתוב וסימנים, מתחים בין תשובות ושאלות לפגישה')),
+    intake && intake.state && intake.page ? Object.assign(clientFrame(intake, c, 'view-analysis'), { className: 'client-frame inline-analysis' })
+      : el('p', { class: 'muted small' }, 'שאלון הכניסה עוד לא מולא. הניתוח יופיע כאן כשיתקבל.'));
+  if (analysisPart) analysisPart.addEventListener('toggle', () => { m1Open = analysisPart.open; });
 
   const TEXTS = meet ? [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות', 'מה סוכם, ומה הכיוון להמשך']]
     : [['decisions', 'מה הוחלט', 'מה עולה ממה שהתקבל, ומה עושים עכשיו']];
@@ -679,6 +694,11 @@ function interactionCard(r, ms, n) {
     return el('label', { class: 'field mtg-text' }, el('span', {}, lab,
       T[f] && T[f].text ? el('span', { class: 'muted small by' }, ' · ' + (T[f].byName || '') + ', ' + fmtWhen(T[f].at)) : null), x);
   });
+  if (!m.done && !['summary', 'decisions'].some(f => T[f] && T[f].text)) areas.forEach(lab => lab.querySelector('textarea').addEventListener('input', (e) => {
+    if (!e.target.value.trim()) return;
+    if (meet) done.checked = true;
+    if (meet && !date.value) { const d = new Date(), p2 = x => String(x).padStart(2, '0'); date.value = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+  }));
   const oldTask = T.task && T.task.text ? el('p', { class: 'small muted old-task' }, 'משימה (מלפני האינטראקציות): ' + T.task.text) : null;
 
   // what comes next: questionnaires to open, tasks for the נועץ, and the kind of the next interaction
@@ -753,6 +773,7 @@ function interactionCard(r, ms, n) {
       el('span', { class: 'mtg-when' }, kind, el('label', { class: 'check' }, done, meet ? ' התקיימה' : ' בוצע'),
         meet ? date : (m.date ? el('span', { class: 'small' }, fmtDay(m.date)) : null), meet ? time : null)),
     inputsPart(r, ms, n),
+    analysisPart,
     claudePart,
     areas,
     oldTask,

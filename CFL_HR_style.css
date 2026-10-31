@@ -381,3 +381,8 @@ textarea.fresh { animation: freshtext 2.4s ease-out; }
 .prep .wait-note { margin: 4px 0 8px; }
 .claude-closed { margin-top: 6px; }
 .claude-team-link a { word-break: break-all; }
+
+/* the first meeting: the built-in analysis of the intake, inside the card */
+.m1-analysis > summary { cursor: pointer; list-style-position: inside; }
+.m1-analysis > summary h4 { display: inline; margin: 0; }
+.client-frame.inline-analysis { display: block; width: 100%; height: 75vh; min-height: 420px; border: 1px solid var(--rule, #e3e0d6); border-radius: 8px; margin-top: 8px; background: #fff; }
