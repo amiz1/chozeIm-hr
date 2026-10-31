@@ -1093,7 +1093,8 @@ function ambCard(text) {
 
 // Inside the popup: "טקסט" (default) | "סיכום לנועץ" | "תשובות הנועץ" | "העתקה"
 function answerViews(q, client, start) {
-  const text = el('div', {}, el('div', { class: 'answers' }, q.summary || '—'), q.id === 'la' ? ambCard(q.summary) : null);
+  const text = el('div', {}, el('div', { class: 'answers' }, q.summary || '—'), q.id === 'la' ? ambCard(q.summary) : null,
+    q.response ? el('div', { class: 'resp-box' }, el('h4', {}, 'השיקוף האישי שהנועץ/ת קיבל/ה' + (q.responseAt ? ' · ' + q.responseAt : '')), el('div', { class: 'answers' }, q.response)) : null);
   const canShow = !!(q.page && q.state && typeof CFL_HR_CLIENT_SITE === 'string');
   const panes = { text: text };
   const tabs = {};
@@ -1139,7 +1140,7 @@ function clientFrame(q, client, mode) {
   const onMsg = (e) => {
     if (e.source !== frame.contentWindow || e.origin !== origin || !e.data || e.data.type !== 'cfl-view-ready') return;
     frame.contentWindow.postMessage({ type: 'cfl-view', state: q.state, submittedAt: q.sentAt, updatedAt: q.updatedAt,
-      name: client.name, gender: client.gender }, origin);
+      name: client.name, gender: client.gender, response: q.response || '', responseAt: q.responseAt || '' }, origin);
   };
   window.addEventListener('message', onMsg);
   // stop listening once the popup is closed
