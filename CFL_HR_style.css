@@ -382,10 +382,6 @@ textarea.fresh { animation: freshtext 2.4s ease-out; }
 .claude-closed { margin-top: 6px; }
 .claude-team-link a { word-break: break-all; }
 
-/* the first meeting: the built-in analysis of the intake, inside the card */
-.m1-analysis > summary { cursor: pointer; list-style-position: inside; }
-.m1-analysis > summary h4 { display: inline; margin: 0; }
-.client-frame.inline-analysis { display: block; width: 100%; height: 75vh; min-height: 420px; border: 1px solid var(--rule, #e3e0d6); border-radius: 8px; margin-top: 8px; background: #fff; }
 
 /* Claude writing straight into the interaction */
 .claude-live { margin: 4px 0 6px; color: var(--ink); }
@@ -396,3 +392,20 @@ textarea.claude-writing { background: #f7f8f2; }
 /* Claude's personal response that the נועץ got at the end of the questionnaire */
 .resp-box{margin-top:16px;border-top:4px solid #B08A3E;background:#FFFDF8;padding:12px 14px}
 .resp-box h4{margin:0 0 8px;font-size:16px}
+
+/* the prep document (Claude's prep for a פגישה): a page inside the interaction, also downloadable as Word */
+.prep-doc{background:#fff;border:1px solid #DCD8CC;border-radius:6px;padding:16px 18px;margin:8px 0;line-height:1.65;font-size:15px;max-height:640px;overflow:auto}
+.prep-doc.claude-writing{background:#FDFCF8;border-style:dashed}
+.prep-doc .doc-title{margin:0 0 2px;font-size:19px}
+.prep-doc .doc-title + p{color:#6E6A5F;font-size:13px;margin:0 0 10px}
+.prep-doc .doc-h{margin:18px 0 6px;font-size:16px;color:#5E6A41;border-bottom:1px solid #E6E3D8;padding-bottom:3px}
+.prep-doc .doc-h3{margin:12px 0 4px;font-size:15px}
+.prep-doc p{margin:0 0 7px}
+.prep-doc ul,.prep-doc ol{margin:0 0 8px;padding-right:22px}
+.prep-doc li{margin:0 0 4px}
+.prep-doc .doc-table{overflow-x:auto;margin:6px 0 12px}
+.prep-doc table{border-collapse:collapse;width:100%;font-size:14px}
+.prep-doc th,.prep-doc td{border:1px solid #DCD8CC;padding:6px 8px;text-align:right;vertical-align:top}
+.prep-doc thead th{background:#EEF0E6}
+.prep-doc tbody th{background:#FAF9F5;font-weight:600;white-space:nowrap}
+.prep-word{margin-inline-start:8px}

@@ -463,7 +463,7 @@ function previewClient(email) {
 
 let currentClient = null; // the email of the תיק on screen (refreshed when you come back to this tab)
 let qsOpen = false;
-let m1Open = true; // the built-in analysis in the first meeting: open or folded (kept while moving between תיקים) // "השאלונים" open or closed (kept while moving between תיקים)
+
 
 function drawClient(r, refresh) {
   const y = window.scrollY;
@@ -599,7 +599,7 @@ function openingItem(r, ms) {
         intake.sentAt ? el('button', { type: 'button', class: 'link-btn small', onclick: () => openAnswers(intake, r.client) }, 'צפייה בתשובות') : null) : null,
       el('li', { class: r.cv ? 'done' : '' }, el('span', { class: 'dot' }), el('span', { class: 'qt' }, 'קורות חיים'),
         r.cv ? el('span', { class: 'muted small' }, ' · ' + r.cv.name + ' · ' + fmtWhen(r.cv.uploadedAt)) : el('span', { class: 'badge wait' }, 'לא הועלו'))),
-    first ? el('p', { class: 'hint small' }, 'על בסיס אלה Claude כותב את הניתוח המלא לקראת הפגישה הראשונה (בכרטיס של פגישה 1).') : null);
+    first ? el('p', { class: 'hint small' }, 'על בסיס אלה Claude כותב את ההכנה לפגישה הראשונה (בכרטיס של פגישה 1).') : null);
 }
 
 function afterMeetSave(r, res) {
@@ -651,16 +651,14 @@ function interactionCard(r, ms, n) {
     if (res.ok) afterMeetSave(r, res);
   });
 
-  // what Claude writes: the prep of a פגישה (the first: the full analysis), or the insights of an עיבוד (optional)
+  // what Claude writes: the prep of a פגישה (a fixed document, the first meeting too), or the insights of an עיבוד (optional)
   const field = meet ? 'prep' : 'insight';
   const cT = T[field] && T[field].text ? T[field] : null;
   const cMsg = el('div', { class: 'prep-msg', 'aria-live': 'polite' });
-  const cvOnly = meet && first; // the first meeting: the built-in analysis (below), and Claude only for what the CV adds
-  const cName = meet ? (cvOnly ? 'עדכון לפי קורות החיים (Claude, לא חובה)' : 'הכנה לפגישה') : 'תובנות Claude (לא חובה)';
+  const cName = meet ? 'הכנה לפגישה' : 'תובנות Claude (לא חובה)';
   // Claude writes straight into this box (in parts, so the text grows); a note under it makes Claude rewrite the same text
   const live = claudeRun && claudeRun.email === c.email && claudeRun.n === n && claudeRun.field === field ? claudeRun : null;
-  const firstLabel = meet ? (cvOnly ? 'עדכון לפי קורות החיים עם Claude' : 'הכנה לפגישה עם Claude') : 'עיבוד עם Claude';
-  const noCv = cvOnly && !r.cv && !cT; // nothing for Claude to add yet
+  const firstLabel = meet ? 'הכנה לפגישה עם Claude' : 'עיבוד עם Claude';
   const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude', disabled: !!live,
     onclick: () => claudeWrite(r, n, field, '', cMsg) }, cT ? 'כתיבה מחדש עם Claude' : firstLabel);
   const note = cT && !m.done ? el('textarea', { id: 'm_note', rows: '2', placeholder: 'מה לתקן, לקצר, להוסיף, או מה לא מדויק' }) : null;
@@ -669,28 +667,26 @@ function interactionCard(r, ms, n) {
     claudeWrite(r, n, field, v, cMsg);
   } }, 'עדכון הטקסט לפי ההערה') : null;
   const stopBtn = live ? el('button', { type: 'button', class: 'link-btn small prep-stop', onclick: () => { if (claudeRun) claudeRun.stop = true; } }, 'עצירה') : null;
+  // the prep is a document: shown as a page (not edited here; corrections go through the note), and downloadable as Word
+  const wordBtn = meet && cT && !live ? el('button', { type: 'button', class: 'btn secondary small prep-word', onclick: (e) =>
+    withBusy(e.currentTarget, () => downloadDocx(cT.text, (c.name || 'נועץ').trim() + ' – הכנה לפגישה ' + n + '.docx', cMsg)) }, 'הורדה כ-Word') : null;
+  const textView = meet
+    ? (live ? docView(live.text || '', 'claude-writing', 'm_' + field) : cT ? docView(cT.text, '', 'm_' + field) : null)
+    : (live ? el('textarea', { id: 'm_' + field, rows: '12', readonly: true, class: 'claude-writing' }, live.text || '')
+      : cT ? el('textarea', { id: 'm_' + field, 'data-keep': '1', rows: '12' }, cT.text) : null);
   const claudePart = el('div', { class: 'mtg-part prep' }, el('h4', {}, cName,
-      cT && !live ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null),
+      cT && !live ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null, wordBtn ? ' ' : null, wordBtn),
     live ? el('p', { class: 'claude-live small' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
-      live.rewrite ? 'Claude כותב מחדש לפי ההערה… ' : 'Claude כותב… ', live.part ? '(חלק ' + live.part + ')' : 'זה לוקח בערך דקה או שתיים.', ' ', stopBtn) : null,
-    live ? el('textarea', { id: 'm_' + field, rows: '12', readonly: true, class: 'claude-writing' }, live.text || '')
-      : cT ? el('textarea', { id: 'm_' + field, 'data-keep': '1', rows: '12' }, cT.text) : null,
+      live.rewrite ? 'Claude כותב מחדש לפי ההערה… ' : 'Claude כותב… ', live.part ? '(חלק ' + live.part + ')' : (meet ? 'זה לוקח בערך שתיים–שלוש דקות.' : 'זה לוקח בערך דקה או שתיים.'), ' ', stopBtn) : null,
+    textView,
     m.done ? null : cMsg,
     m.done ? el('p', { class: 'hint claude-closed' }, cT ? 'האינטראקציה התקיימה, ולכן Claude כבר לא כותב אליה. זו הגרסה האחרונה.' : 'לא נכתב טקסט עם Claude באינטראקציה הזו.')
-      : cT || live ? null : el('p', { class: 'hint' }, meet ? (cvOnly ? (noCv ? 'עוד לא הועלו קורות חיים. כשיועלו, Claude יוכל לכתוב מה הם מוסיפים לניתוח של שאלון הכניסה.'
-          : 'Claude קורא את קורות החיים לצד שאלון הכניסה, וכותב רק מה הם מוסיפים או משנים בניתוח. הטקסט נשמר כאן.')
-        : 'Claude כותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא: מה השתנה, מה חדש בתשובות, מה לבדוק. הטקסט נשמר כאן.')
+      : cT || live ? null : el('p', { class: 'hint' }, meet
+        ? 'Claude כותב הכנה לפגישה במבנה קבוע: תמונת מצב, השערת עבודה, מה עולה לפי נושאים, סתירות לבדוק, כוחות, נקודות לתשומת לב, מה מיטבי עד עכשיו, תוכנית לפגישה, הצעד הבא ומה עוד חסר. ההכנה נשמרת כאן, ואפשר להוריד אותה כ-Word.'
         : 'אם רוצים: Claude עובר על מה שהתקבל, ומציע אם לשלוח עוד הכנה לפני הפגישה. הטקסט נשמר כאן.'),
     note && !live ? el('label', { class: 'field claude-note' }, el('span', {}, 'הערה ל-Claude'), note) : null,
-    m.done || noCv || live ? null : el('div', { class: 'row' }, noteBtn, cBtn));
+    m.done || live ? null : el('div', { class: 'row' }, noteBtn, cBtn));
   if (!live && claudeFlash && claudeFlash.email === c.email && claudeFlash.n === n) cMsg.append(claudeFlash.error ? msgBox(claudeFlash.text) : el('span', { class: 'saved-note' }, claudeFlash.text));
-  // the first meeting: the built-in "ניתוח מלא" of the intake (with "ניתוב וסימנים"), inside the card, foldable
-  const intake = cvOnly ? r.questionnaires.filter(q => q.id === 'intake')[0] : null;
-  const analysisPart = !cvOnly ? null : el('details', { class: 'mtg-part m1-analysis', open: m1Open },
-    el('summary', {}, el('h4', {}, 'ניתוח מלא של שאלון הכניסה'), el('span', { class: 'muted small' }, ' · ניתוב וסימנים, מתחים בין תשובות ושאלות לפגישה')),
-    intake && intake.state && intake.page ? Object.assign(clientFrame(intake, c, 'view-analysis'), { className: 'client-frame inline-analysis' })
-      : el('p', { class: 'muted small' }, 'שאלון הכניסה עוד לא מולא. הניתוח יופיע כאן כשיתקבל.'));
-  if (analysisPart) analysisPart.addEventListener('toggle', () => { m1Open = analysisPart.open; });
 
   const TEXTS = meet ? [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות', 'מה סוכם, ומה הכיוון להמשך']]
     : [['decisions', 'מה הוחלט', 'מה עולה ממה שהתקבל, ומה עושים עכשיו']];
@@ -755,7 +751,7 @@ function interactionCard(r, ms, n) {
   const save = el('button', { type: 'button', class: 'btn primary', id: 'm_save', onclick: async () => {
     msg.replaceChildren();
     const texts = {}; TEXTS.forEach(([f]) => { texts[f] = document.getElementById('m_' + f).value; });
-    if (document.getElementById('m_' + field)) texts[field] = document.getElementById('m_' + field).value;
+    if (!meet && document.getElementById('m_' + field)) texts[field] = document.getElementById('m_' + field).value;
     const given = [...qPart.querySelectorAll('input:checked')].map(x => x.value);
     const tasks = [...taskRows.children].map(x => x._get()).filter(x => x.text.trim());
     const nx = nextBox.querySelector('input:checked');
@@ -769,7 +765,7 @@ function interactionCard(r, ms, n) {
     meetSel[c.email] = n; // stay on this interaction after the save
     meetFlash = { email: c.email, n: n, mail: !!(titles.length || newTasks || (done.checked && !m.done && (saved.tasks || []).length)),
       text: 'נשמר' + (titles.length ? '. נפתחו לנועץ/ת: ' + titles.join(', ') : '') + (res.added ? '. נוספה ' + KIND[(res.caseInfo.meetings[res.added - 1] || {}).kind] + ' ' + res.added : '') };
-    TEXTS.concat([[field]]).forEach(([f]) => { const x = document.getElementById('m_' + f); if (x) x.defaultValue = x.value; });
+    TEXTS.concat(meet ? [] : [[field]]).forEach(([f]) => { const x = document.getElementById('m_' + f); if (x) x.defaultValue = x.value; });
     afterMeetSave(r, res);
   } }, 'שמירה');
 
@@ -778,12 +774,111 @@ function interactionCard(r, ms, n) {
       el('span', { class: 'mtg-when' }, kind, el('label', { class: 'check' }, done, meet ? ' התקיימה' : ' בוצע'),
         meet ? date : (m.date ? el('span', { class: 'small' }, fmtDay(m.date)) : null), meet ? time : null)),
     inputsPart(r, ms, n),
-    analysisPart,
     claudePart,
     areas,
     oldTask,
     nextPart,
     el('div', { class: 'row' }, save, msg));
+}
+
+// ---------- the prep document: the Markdown Claude writes, shown as a page and built into a Word file ----------
+// Blocks: headings (#, ##, ###), tables (| … |), list items (- / • / 1.), and one paragraph per line; **bold** inside.
+function mdBlocks(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n'), out = [];
+  const cells = l => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(s => s.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i], s = l.trim();
+    if (!s) continue;
+    let m;
+    if ((m = s.match(/^(#{1,3})\s+(.*)$/))) { out.push({ t: 'h' + m[1].length, text: m[2] }); continue; }
+    if (s[0] === '|') {
+      const rows = [];
+      for (; i < lines.length && lines[i].trim()[0] === '|'; i++) {
+        const c = cells(lines[i]);
+        if (c.every(x => /^:?-{2,}:?$/.test(x) || x === '')) continue; // the separator row
+        rows.push(c);
+      }
+      i--;
+      const w = Math.max(...rows.map(r => r.length));
+      if (rows.length) out.push({ t: 'table', rows: rows.map(r => r.concat(Array(w - r.length).fill(''))) });
+      continue;
+    }
+    if ((m = s.match(/^[-•*]\s+(.*)$/))) { out.push({ t: 'li', text: m[1] }); continue; }
+    if ((m = s.match(/^(\d+)[.)]\s+(.*)$/))) { out.push({ t: 'li', n: m[1], text: m[2] }); continue; }
+    out.push({ t: 'p', text: s });
+  }
+  return out;
+}
+/** "**a** b" -> [{ text: 'a', b: true }, { text: ' b' }] */
+function mdRuns(s) {
+  return String(s || '').split(/(\*\*[^*]+\*\*)/).filter(Boolean).map(x => /^\*\*[^*]+\*\*$/.test(x) ? { text: x.slice(2, -2), b: true } : { text: x.replace(/\*\*/g, '') });
+}
+function docView(text, extra, id) {
+  const inl = s => mdRuns(s).map(r => r.b ? el('b', {}, r.text) : r.text);
+  const body = el('div', { class: 'prep-doc' + (extra ? ' ' + extra : ''), id: id || null, dir: 'rtl' });
+  let list = null;
+  mdBlocks(text).forEach(b => {
+    if (b.t !== 'li') list = null;
+    if (b.t === 'h1') body.append(el('h3', { class: 'doc-title' }, inl(b.text)));
+    else if (b.t === 'h2') body.append(el('h4', { class: 'doc-h' }, inl(b.text)));
+    else if (b.t === 'h3') body.append(el('h5', { class: 'doc-h3' }, inl(b.text)));
+    else if (b.t === 'p') body.append(el('p', {}, inl(b.text)));
+    else if (b.t === 'li') {
+      if (!list || list.dataset.ol !== (b.n ? '1' : '')) { list = el(b.n ? 'ol' : 'ul', { 'data-ol': b.n ? '1' : '' }); body.append(list); }
+      list.append(el('li', {}, inl(b.text)));
+    } else if (b.t === 'table') {
+      const head = b.rows[0], rest = b.rows.slice(1);
+      body.append(el('div', { class: 'doc-table' }, el('table', {},
+        el('thead', {}, el('tr', {}, head.map(c => el('th', {}, inl(c))))),
+        el('tbody', {}, rest.map(r => el('tr', {}, r.map((c, i) => el(i === 0 ? 'th' : 'td', i === 0 ? { scope: 'row' } : {}, inl(c)))))))));
+    }
+  });
+  return body;
+}
+// the Word file is built here in the browser (docx, loaded the first time it's needed)
+let docxLib = null;
+function loadDocx() {
+  if (window.docx) return Promise.resolve(window.docx);
+  if (!docxLib) docxLib = new Promise((ok, bad) => {
+    const s = el('script', { src: 'https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js' });
+    s.onload = () => window.docx ? ok(window.docx) : bad(new Error('docx'));
+    s.onerror = () => { docxLib = null; bad(new Error('docx')); };
+    document.head.append(s);
+  });
+  return docxLib;
+}
+async function downloadDocx(text, filename, msg) {
+  let D;
+  try { D = await loadDocx(); } catch (e) { if (msg) msg.replaceChildren(msgBox('לא הצלחתי לטעון את הכלי שבונה את קובץ ה-Word. בדקו את החיבור לאינטרנט ונסו שוב.')); return; }
+  const OLIVE = '5E6A41';
+  const runs = (s, o) => mdRuns(s).map(r => new D.TextRun({ text: r.text, bold: !!(r.b || (o && o.bold)), rightToLeft: true, font: 'Arial', size: (o && o.size) || 22, color: o && o.color }));
+  const para = (s, o) => new D.Paragraph(Object.assign({ bidirectional: true, spacing: { after: 120, line: 300 }, children: runs(s, o) }, o && o.para));
+  const children = [];
+  mdBlocks(text).forEach(b => {
+    if (b.t === 'h1') children.push(para(b.text, { bold: true, size: 32, para: { spacing: { after: 60 } } }));
+    else if (b.t === 'h2') children.push(para(b.text, { bold: true, size: 26, color: OLIVE, para: { spacing: { before: 280, after: 120 } } }));
+    else if (b.t === 'h3') children.push(para(b.text, { bold: true, size: 23 }));
+    else if (b.t === 'p') children.push(para(b.text));
+    else if (b.t === 'li') children.push(para((b.n ? b.n + '. ' : '• ') + b.text, { para: { indent: { start: 360 } } }));
+    else if (b.t === 'table') {
+      const border = { style: D.BorderStyle.SINGLE, size: 4, color: 'C9C5B9' };
+      children.push(new D.Table({
+        visuallyRightToLeft: true, width: { size: 100, type: D.WidthType.PERCENTAGE },
+        borders: { top: border, bottom: border, left: border, right: border, insideHorizontal: border, insideVertical: border },
+        rows: b.rows.map((r, ri) => new D.TableRow({ tableHeader: ri === 0, children: r.map((c, ci) => new D.TableCell({
+          shading: ri === 0 ? { fill: 'EEF0E6', type: D.ShadingType.CLEAR, color: 'auto' } : undefined,
+          margins: { top: 60, bottom: 60, left: 100, right: 100 },
+          children: [para(c, { bold: ri === 0 || ci === 0, size: 20, para: { spacing: { after: 0, line: 260 } } })] })) }))
+      }));
+      children.push(para(''));
+    }
+  });
+  const doc = new D.Document({ creator: 'חוזה עם החיים', title: filename.replace(/\.docx$/, ''),
+    sections: [{ properties: { page: { margin: { top: 1000, bottom: 1000, left: 1000, right: 1000 } } }, children: children }] });
+  const blob = await D.Packer.toBlob(doc);
+  const a = el('a', { href: URL.createObjectURL(blob), download: filename.replace(/[\\/:*?"<>|]/g, '_') });
+  document.body.append(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
 
 // ---------- Claude, through the server (the key is there): the text is written in parts, each under a minute ----------
@@ -811,7 +906,7 @@ async function claudeWrite(r, n, field, comment, msg) {
     }
     claudeRun.text = res.text; claudeRun.part = res.part || claudeRun.part + 1;
     const box = document.getElementById('m_' + field);
-    if (box && currentClient === c.email && meetSel[c.email] === n) { box.value = res.text; box.scrollTop = box.scrollHeight; const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(חלק ' + claudeRun.part + ')'; }
+    if (box && currentClient === c.email && meetSel[c.email] === n) { if (box.tagName === 'TEXTAREA') { box.value = res.text; box.scrollTop = box.scrollHeight; } else box.replaceWith(docView(res.text, 'claude-writing', box.id)); const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(חלק ' + claudeRun.part + ')'; }
     if (res.done) break;
   }
   if (res && res.ok && res.done) {
@@ -821,7 +916,7 @@ async function claudeWrite(r, n, field, comment, msg) {
   }
   claudeRun = null;
   const box = document.getElementById('m_' + field);
-  if (box) box.defaultValue = box.value;
+  if (box && box.tagName === 'TEXTAREA') box.defaultValue = box.value;
   redraw();
 }
 
@@ -968,7 +1063,6 @@ function questionnaireRow(q, client) {
       parts.push(el('span', { class: 'badge sent' }, sentLabel(q)));
       if (!q.open) parts.push(el('span', { class: 'badge wait' }, 'לצפייה בלבד אצל הנועץ'));
       parts.push(el('button', { type: 'button', class: 'btn primary small open-answers', onclick: () => openAnswers(q, client) }, 'צפייה בתשובות'));
-      if (q.id === 'intake' && q.state) parts.push(el('button', { type: 'button', class: 'btn secondary small open-analysis', onclick: () => openAnswers(q, client, 'analysis') }, 'ניתוח מלא'));
     } else {
       if (q.open) {
         parts.push(el('span', { class: 'badge wait' }, 'טרם מילא/ה'));
@@ -1123,7 +1217,6 @@ function answerViews(q, client, start) {
       el('div', { class: 'segs' }, tab('text', 'טקסט'),
         canShow ? tab('results', 'סיכום לנועץ') : null,
         canShow ? tab('answers', 'תשובות הנועץ') : null,
-        canShow && q.id === 'intake' ? tab('analysis', 'ניתוח מלא') : null,
         q.id === 'matrix' && matrixState(q) ? tab('matrix', 'קריאת התוצאות') : null),
       el('div', {}, copied, copyBtn)),
     area);
