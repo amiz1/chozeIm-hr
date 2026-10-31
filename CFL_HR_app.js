@@ -660,11 +660,11 @@ function interactionCard(r, ms, n) {
   const live = claudeRun && claudeRun.email === c.email && claudeRun.n === n && claudeRun.field === field ? claudeRun : null;
   const firstLabel = meet ? 'הכנה לפגישה עם Claude' : 'עיבוד עם Claude';
   const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude', disabled: !!live,
-    onclick: () => claudeWrite(r, n, field, '', cMsg) }, cT ? 'כתיבה מחדש עם Claude' : firstLabel);
+    onclick: (e) => claudeWrite(r, n, field, '', cMsg, e.currentTarget) }, cT ? 'כתיבה מחדש עם Claude' : firstLabel);
   const note = cT && !m.done ? el('textarea', { id: 'm_note', rows: '2', placeholder: 'מה לתקן, לקצר, להוסיף, או מה לא מדויק' }) : null;
   const noteBtn = note ? el('button', { type: 'button', class: 'btn secondary small prep-revise', disabled: !!live, onclick: () => {
     const v = note.value.trim(); if (!v) { cMsg.replaceChildren(msgBox('כתבו קודם מה לשנות.')); return; }
-    claudeWrite(r, n, field, v, cMsg);
+    claudeWrite(r, n, field, v, cMsg, noteBtn);
   } }, 'עדכון הטקסט לפי ההערה') : null;
   const stopBtn = live ? el('button', { type: 'button', class: 'link-btn small prep-stop', onclick: () => { if (claudeRun) claudeRun.stop = true; } }, 'עצירה') : null;
   // the prep is a document: shown as a page (not edited here; corrections go through the note), and downloadable as Word
@@ -884,10 +884,12 @@ async function downloadDocx(text, filename, msg) {
 // ---------- Claude, through the server (the key is there): the text is written in parts, each under a minute ----------
 let claudeRun = null;   // { email, n, field, text, part, rewrite, stop }: the text being written now
 let claudeFlash = null; // { email, n, text, error }: after it finished (or stopped)
-async function claudeWrite(r, n, field, comment, msg) {
+async function claudeWrite(r, n, field, comment, msg, btn) {
   const c = r.client;
   if (claudeRun) { msg.replaceChildren(msgBox('Claude כבר כותב טקסט אחר. רגע…')); return; }
-  msg.replaceChildren();
+  // the press answers at once, right here, before anything else is drawn or asked of the server
+  if (btn) { btn.disabled = true; btn.classList.add('busy'); btn.textContent = 'Claude מתחיל…'; }
+  msg.replaceChildren(el('p', { class: 'claude-live small' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'מכין את התיק בשביל Claude…'));
   claudeFlash = null;
   // what was typed in the other boxes stays (they are kept through the redraws)
   const redraw = () => { if (currentClient === c.email && app.querySelector('.case-tab')) { meetSel[c.email] = n; drawClient(r, true); } };
