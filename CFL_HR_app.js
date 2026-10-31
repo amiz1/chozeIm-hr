@@ -1,5 +1,5 @@
 // חוזה עם החיים (CFL) – ממשק יועצים, צד הדפדפן
-// The login is kept in sessionStorage: it lasts for this browser tab only and is gone when the tab closes.
+// The login is kept in localStorage until logout (or 30 days with no use, checked by the server).
 const HR_TOKEN_KEY = 'cfl_hr_token';
 
 const app = document.getElementById('app');
@@ -7,10 +7,24 @@ const navName = document.getElementById('navName');
 const logoutBtn = document.getElementById('logoutBtn');
 let me = null; // { name, email }
 
-function getToken() { try { return sessionStorage.getItem(HR_TOKEN_KEY); } catch (e) { return null; } }
-function setToken(v) {
-  try { if (v === null) sessionStorage.removeItem(HR_TOKEN_KEY); else sessionStorage.setItem(HR_TOKEN_KEY, v); } catch (e) { }
+// signed in until logout: the key is kept in this browser (every tab, also after closing it)
+function getToken() {
+  try {
+    const t = localStorage.getItem(HR_TOKEN_KEY);
+    if (t) return t;
+    const old = sessionStorage.getItem(HR_TOKEN_KEY); // a sign-in from before this version: keep it
+    if (old) { localStorage.setItem(HR_TOKEN_KEY, old); sessionStorage.removeItem(HR_TOKEN_KEY); }
+    return old;
+  } catch (e) { return null; }
 }
+function setToken(v) {
+  try { if (v === null) localStorage.removeItem(HR_TOKEN_KEY); else localStorage.setItem(HR_TOKEN_KEY, v); } catch (e) { }
+  try { sessionStorage.removeItem(HR_TOKEN_KEY); } catch (e) { }
+}
+// logged out in another tab: this tab follows
+window.addEventListener('storage', (e) => {
+  if (e.key === HR_TOKEN_KEY && !e.newValue && me) { me = null; cacheClear(); showLogin(); }
+});
 
 // ===================== Talking to the server =====================
 async function api(action, data) {
@@ -31,7 +45,7 @@ async function api(action, data) {
     return { ok: false, message: 'השרת החזיר תשובה לא צפויה (בדרך כלל: הרשאות הסקריפט לא אושרו, או שהפריסה אינה פתוחה ל-Anyone). פרטים במסוף הדפדפן.' };
   }
   if (out.auth === false) {
-    setToken(null);
+    cacheClear(); setToken(null);
     showLogin(out.message);
     return { ok: false, handled: true };
   }
@@ -40,11 +54,11 @@ async function api(action, data) {
 }
 
 // ===================== Remembering answers (makes moving around fast) =====================
-// Lists and נועץ pages are drawn at once from the last visit in this tab, then refreshed in the background.
+// Lists and נועץ pages are drawn at once from the last visit in this browser (kept until logout), then refreshed in the background.
 const CACHE_PREFIX = 'cfl_hr_c_';
 function cacheGet(key) {
   try {
-    const o = JSON.parse(sessionStorage.getItem(CACHE_PREFIX + key) || 'null');
+    const o = JSON.parse(localStorage.getItem(CACHE_PREFIX + key) || 'null');
     return o && o.token === getToken() ? o.r : null;
   } catch (e) { return null; }
 }
@@ -52,16 +66,16 @@ function cacheGet(key) {
 const fetchedAt = {};
 function cacheAt(key) {
   if (fetchedAt[key]) return fetchedAt[key];
-  try { const o = JSON.parse(sessionStorage.getItem(CACHE_PREFIX + key) || 'null'); return o && o.at || 0; } catch (e) { return 0; }
+  try { const o = JSON.parse(localStorage.getItem(CACHE_PREFIX + key) || 'null'); return o && o.at || 0; } catch (e) { return 0; }
 }
 function cachePut(key, r, at) {
   fetchedAt[key] = at || Date.now();
   const s = JSON.stringify({ token: getToken(), r: r, at: fetchedAt[key] });
-  try { sessionStorage.setItem(CACHE_PREFIX + key, s); }
+  try { localStorage.setItem(CACHE_PREFIX + key, s); }
   catch (e) { // the tab's storage is full: forget the other תיקים (never the list), then try again
     try {
-      Object.keys(sessionStorage).filter(k => k.indexOf(CACHE_PREFIX + 'client_') === 0 && k !== CACHE_PREFIX + key).forEach(k => sessionStorage.removeItem(k));
-      sessionStorage.setItem(CACHE_PREFIX + key, s);
+      Object.keys(localStorage).filter(k => k.indexOf(CACHE_PREFIX + 'client_') === 0 && k !== CACHE_PREFIX + key).forEach(k => localStorage.removeItem(k));
+      localStorage.setItem(CACHE_PREFIX + key, s);
     } catch (x) { }
   }
 }
@@ -74,9 +88,9 @@ function listPatch(email, change) {
   if (change === null) l.clients.splice(i, 1); else Object.assign(l.clients[i], change);
   cachePut('list', l, cacheAt('list'));
 }
-function cacheDrop(key) { delete fetchedAt[key]; try { sessionStorage.removeItem(CACHE_PREFIX + key); } catch (e) { } }
+function cacheDrop(key) { delete fetchedAt[key]; try { localStorage.removeItem(CACHE_PREFIX + key); } catch (e) { } }
 function cacheClear() {
-  try { Object.keys(sessionStorage).filter(k => k.indexOf(CACHE_PREFIX) === 0).forEach(k => sessionStorage.removeItem(k)); } catch (e) { }
+  try { Object.keys(localStorage).filter(k => k.indexOf(CACHE_PREFIX) === 0).forEach(k => localStorage.removeItem(k)); } catch (e) { }
   ahead = {};
   for (const k in fetchedAt) delete fetchedAt[k];
 }
