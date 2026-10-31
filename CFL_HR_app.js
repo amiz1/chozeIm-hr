@@ -677,7 +677,7 @@ function interactionCard(r, ms, n) {
   const claudePart = el('div', { class: 'mtg-part prep' }, el('h4', {}, cName,
       cT && !live ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null, wordBtn ? ' ' : null, wordBtn),
     live ? el('p', { class: 'claude-live small' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
-      live.rewrite ? 'Claude כותב מחדש לפי ההערה… ' : 'Claude כותב… ', live.part ? '(חלק ' + live.part + ')' : (meet ? 'זה לוקח בערך שתיים–שלוש דקות.' : 'זה לוקח בערך דקה או שתיים.'), ' ', stopBtn) : null,
+      live.starting ? 'מכין את התיק בשביל Claude… ' : live.rewrite ? 'Claude כותב מחדש לפי ההערה… ' : 'Claude כותב… ', live.part ? '(חלק ' + live.part + ')' : (meet ? 'זה לוקח בערך שתיים–שלוש דקות.' : 'זה לוקח בערך דקה או שתיים.'), ' ', live.starting ? null : stopBtn) : null,
     textView,
     m.done ? null : cMsg,
     m.done ? el('p', { class: 'hint claude-closed' }, cT ? 'האינטראקציה התקיימה, ולכן Claude כבר לא כותב אליה. זו הגרסה האחרונה.' : 'לא נכתב טקסט עם Claude באינטראקציה הזו.')
@@ -891,9 +891,19 @@ async function claudeWrite(r, n, field, comment, msg) {
   claudeFlash = null;
   // what was typed in the other boxes stays (they are kept through the redraws)
   const redraw = () => { if (currentClient === c.email && app.querySelector('.case-tab')) { meetSel[c.email] = n; drawClient(r, true); } };
+  // the card shows at once that Claude is starting (preparing the תיק can take a few seconds), and a problem stays
+  // on screen even if the page was redrawn meanwhile
+  claudeRun = { email: c.email, n: n, field: field, text: '', part: 0, rewrite: !!comment, stop: false, starting: true };
+  redraw();
   const start = await api('claudeStart', { email: c.email, n: n, comment: comment });
-  if (!start.ok) { if (!start.handled) msg.replaceChildren(msgBox(start.message)); return; }
-  claudeRun = { email: c.email, n: n, field: field, text: '', part: 0, rewrite: !!comment, stop: false };
+  if (!start.ok) {
+    claudeRun = null;
+    if (!start.handled) claudeFlash = { email: c.email, n: n, text: start.message || 'Claude לא הצליח להתחיל. אפשר לנסות שוב.', error: true };
+    redraw();
+    if (!start.handled && !document.querySelector('.prep-msg .msg')) msg.replaceChildren(msgBox(start.message || 'Claude לא הצליח להתחיל.'));
+    return;
+  }
+  claudeRun.starting = false;
   redraw();
   let res = null;
   for (let tries = 0; ; ) {
