@@ -657,28 +657,33 @@ function interactionCard(r, ms, n) {
   const cMsg = el('div', { class: 'prep-msg', 'aria-live': 'polite' });
   const cvOnly = meet && first; // the first meeting: the built-in analysis (below), and Claude only for what the CV adds
   const cName = meet ? (cvOnly ? 'עדכון לפי קורות החיים (Claude, לא חובה)' : 'הכנה לפגישה') : 'תובנות Claude (לא חובה)';
-  // the newest Claude page opened for this interaction (still readable): "המשך מאיפה שהפסקנו" reopens it as it was
-  const last = (r.claudeLast || {})[n] || null;
-  const waiting = prepWait && prepWait.email === c.email && prepWait.n === n && prepWait.field === field ? prepWait : null;
+  // Claude writes straight into this box (in parts, so the text grows); a note under it makes Claude rewrite the same text
+  const live = claudeRun && claudeRun.email === c.email && claudeRun.n === n && claudeRun.field === field ? claudeRun : null;
   const firstLabel = meet ? (cvOnly ? 'עדכון לפי קורות החיים עם Claude' : 'הכנה לפגישה עם Claude') : 'עיבוד עם Claude';
-  const noCv = cvOnly && !r.cv && !cT && !last; // nothing for Claude to add yet
-  const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude' + (last ? ' prep-continue' : ''),
-    onclick: () => last ? openContinue(r, n, last.req, cMsg, field) : openPrep(r, n, cBtn, cMsg, field) },
-    last ? 'המשך ב-Claude מאיפה שהפסקנו' : cT ? 'עדכון ב-Claude' : firstLabel);
-  const fresh = last ? el('button', { type: 'button', class: 'link-btn small prep-fresh', onclick: (e) => openPrep(r, n, e.currentTarget, cMsg, field) },
-    'פתיחה מחדש עם התיק המעודכן') : null;
+  const noCv = cvOnly && !r.cv && !cT; // nothing for Claude to add yet
+  const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude', disabled: !!live,
+    onclick: () => claudeWrite(r, n, field, '', cMsg) }, cT ? 'כתיבה מחדש עם Claude' : firstLabel);
+  const note = cT && !m.done ? el('textarea', { id: 'm_note', rows: '2', placeholder: 'מה לתקן, לקצר, להוסיף, או מה לא מדויק' }) : null;
+  const noteBtn = note ? el('button', { type: 'button', class: 'btn secondary small prep-revise', disabled: !!live, onclick: () => {
+    const v = note.value.trim(); if (!v) { cMsg.replaceChildren(msgBox('כתבו קודם מה לשנות.')); return; }
+    claudeWrite(r, n, field, v, cMsg);
+  } }, 'עדכון הטקסט לפי ההערה') : null;
+  const stopBtn = live ? el('button', { type: 'button', class: 'link-btn small prep-stop', onclick: () => { if (claudeRun) claudeRun.stop = true; } }, 'עצירה') : null;
   const claudePart = el('div', { class: 'mtg-part prep' }, el('h4', {}, cName,
-      cT ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null),
+      cT && !live ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null),
+    live ? el('p', { class: 'claude-live small' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
+      live.rewrite ? 'Claude כותב מחדש לפי ההערה… ' : 'Claude כותב… ', live.part ? '(חלק ' + live.part + ')' : 'זה לוקח בערך דקה או שתיים.', ' ', stopBtn) : null,
+    live ? el('textarea', { id: 'm_' + field, rows: '12', readonly: true, class: 'claude-writing' }, live.text || '')
+      : cT ? el('textarea', { id: 'm_' + field, 'data-keep': '1', rows: '12' }, cT.text) : null,
     m.done ? null : cMsg,
-    cT ? el('textarea', { id: 'm_' + field, 'data-keep': '1', rows: '9' }, cT.text)
-      : waiting && !m.done ? el('div', { class: 'claude-wait', id: 'claudeWait' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'Claude כותב בלשונית אחרת. הטקסט יופיע כאן כשיסיים.') : null,
     m.done ? el('p', { class: 'hint claude-closed' }, cT ? 'האינטראקציה התקיימה, ולכן Claude כבר לא כותב אליה. זו הגרסה האחרונה.' : 'לא נכתב טקסט עם Claude באינטראקציה הזו.')
-      : cT || waiting ? null : el('p', { class: 'hint' }, meet ? (cvOnly ? (noCv ? 'עוד לא הועלו קורות חיים. כשיועלו, Claude יוכל לכתוב מה הם מוסיפים לניתוח של שאלון הכניסה.'
+      : cT || live ? null : el('p', { class: 'hint' }, meet ? (cvOnly ? (noCv ? 'עוד לא הועלו קורות חיים. כשיועלו, Claude יוכל לכתוב מה הם מוסיפים לניתוח של שאלון הכניסה.'
           : 'Claude קורא את קורות החיים לצד שאלון הכניסה, וכותב רק מה הם מוסיפים או משנים בניתוח. הטקסט נשמר כאן.')
         : 'Claude כותב תקציר מנהלים (עד 180 מילים) ואחריו ניתוח מלא: מה השתנה, מה חדש בתשובות, מה לבדוק. הטקסט נשמר כאן.')
         : 'אם רוצים: Claude עובר על מה שהתקבל, ומציע אם לשלוח עוד הכנה לפני הפגישה. הטקסט נשמר כאן.'),
-    m.done || noCv ? null : el('div', { class: 'row' }, cBtn, fresh));
-  if (waiting && !m.done) cMsg.append(waitNote(waiting));
+    note && !live ? el('label', { class: 'field claude-note' }, el('span', {}, 'הערה ל-Claude'), note) : null,
+    m.done || noCv || live ? null : el('div', { class: 'row' }, noteBtn, cBtn));
+  if (!live && claudeFlash && claudeFlash.email === c.email && claudeFlash.n === n) cMsg.append(claudeFlash.error ? msgBox(claudeFlash.text) : el('span', { class: 'saved-note' }, claudeFlash.text));
   // the first meeting: the built-in "ניתוח מלא" of the intake (with "ניתוב וסימנים"), inside the card, foldable
   const intake = cvOnly ? r.questionnaires.filter(q => q.id === 'intake')[0] : null;
   const analysisPart = !cvOnly ? null : el('details', { class: 'mtg-part m1-analysis', open: m1Open },
@@ -781,99 +786,44 @@ function interactionCard(r, ms, n) {
     el('div', { class: 'row' }, save, msg));
 }
 
-let prepWait = null; // { email, n, field, req, started, was, link, ... }: waiting for what Claude writes into an interaction
-function startWait(r, n, field, req, link, opened) {
-  const was = (((r.entries || {}).meetTexts || {})[n] || {})[field];
-  prepWait = { email: r.client.email, n: n, field: field, req: req, started: Date.now(), until: Date.now() + 40 * 60000,
-    was: was ? was.at + was.text : '', link: link, opened: opened, got: 0, state: '', next: 0 };
-  meetSel[r.client.email] = n;
-  drawClient(r, true);
-}
-async function openPrep(r, n, btn, msg, field) {
+// ---------- Claude, through the server (the key is there): the text is written in parts, each under a minute ----------
+let claudeRun = null;   // { email, n, field, text, part, rewrite, stop }: the text being written now
+let claudeFlash = null; // { email, n, text, error }: after it finished (or stopped)
+async function claudeWrite(r, n, field, comment, msg) {
   const c = r.client;
+  if (claudeRun) { msg.replaceChildren(msgBox('Claude כבר כותב טקסט אחר. רגע…')); return; }
   msg.replaceChildren();
-  if (!r.claudeUrl) { msg.append(msgBox('עוד לא הוגדר הקישור לדף Claude של הצוות. מנהל/ת מגדיר/ה אותו בהגדרות.')); return; }
-  let w = null;
-  try { w = window.open('', '_blank'); } catch (e) { w = null; }
-  if (w) { try { w.document.title = 'מכינים את התיק…'; w.document.body.textContent = 'מכינים את התיק ל-Claude…'; } catch (e) { } }
-  let res;
-  await withBusy(btn, async () => { res = await api('claudePrepare', { email: c.email, meet: n }); });
-  if (!res || !res.ok) { if (w) w.close(); if (res && !res.handled) msg.append(msgBox(res.message)); return; }
-  // a server script from before the interactions prepares the old package: say so instead of opening it
-  if (res.meet !== n || !(res.pkg >= 2)) {
-    if (w) w.close();
-    msg.append(msgBox('הסקריפט בשרת עדיין בגרסה ישנה. צריך להדביק בסקריפט של אתר היועצים את הקבצים החדשים, להריץ setup, ולפרסם גרסה חדשה (Deploy ← Manage deployments ← New version).'));
-    return;
-  }
-  const link = (res.url || r.claudeUrl) + '#' + res.req;
-  if (w) { try { w.opener = null; w.location.href = link; } catch (e) { w = null; } }
-  r.claudeLast = Object.assign({}, r.claudeLast, { [n]: { req: res.req, at: Date.now() } });
-  cachePut('client_' + c.email, r);
-  startWait(r, n, field, res.req, link, !!w);
-}
-// "המשך מאיפה שהפסקנו": the same Claude page again, with what was written and corrected there (nothing is prepared again)
-function openContinue(r, n, req, msg, field) {
-  msg.replaceChildren();
-  if (!r.claudeUrl) { msg.append(msgBox('עוד לא הוגדר הקישור לדף Claude של הצוות. מנהל/ת מגדיר/ה אותו בהגדרות.')); return; }
-  const link = r.claudeUrl + '#' + req;
-  let w = null;
-  try { w = window.open(link, '_blank', 'noopener'); } catch (e) { w = null; }
-  startWait(r, n, field, req, link, !!w || true);
-}
-// above the text while Claude works in its own tab: what it is doing, and any error it hit
-function waitNote(w) {
-  const box = el('div', { class: 'wait-note small' });
-  const open = el('a', { href: w.link, target: '_blank', rel: 'noopener', class: 'claude-link' }, 'פתיחת דף Claude');
-  const err = /^error:/.test(w.state) ? w.state.slice(6) : '';
-  if (err) {
-    box.append(el('div', { class: 'msg error claude-error', role: 'alert' }, el('b', {}, 'Claude לא סיים: '), err, ' ', open));
-    return box;
-  }
-  box.append(el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
-    w.state === 'writing' ? 'Claude כותב בלשונית אחרת. ' + (w.got ? 'הגרסה החדשה תחליף את הטקסט כאן כשיסיים. ' : 'הטקסט יופיע כאן כשיסיים. ')
-      : w.got ? 'Claude שמר גרסה חדשה ' + fmtWhen(w.gotAt) + '. תיקון שתכתבו בלשונית של Claude יחליף את הטקסט כאן. '
-      : 'נפתחה לשונית של Claude, והוא מתחיל לכתוב שם. אפשר להישאר כאן. ', open);
-  if (!w.got && w.state !== 'writing' && Date.now() - w.started > 90000) box.append(el('p', { class: 'hint' },
-    'Claude עוד לא התחיל לכתוב. ייתכן שהלשונית שלו מחכה לאישור (גישה ל-Google Sheets או ל-Claude): עברו אליה ואשרו.'));
-  return box;
-}
-function paintWait() {
-  const w = prepWait;
-  const b = document.querySelector('.tl-item.open .prep-msg');
-  if (w && b && currentClient === w.email && meetSel[w.email] === w.n) b.replaceChildren(waitNote(w));
-}
-// while waiting: a light check every 4 seconds (every 20 when this tab is in the background); each new version Claude saves shows up here
-let prepBusy = false;
-setInterval(async () => {
-  const w = prepWait;
-  if (!w || prepBusy || Date.now() < w.next) return;
-  if (Date.now() > w.until) { prepWait = null; paintWait(); return; }
-  if (currentClient !== w.email || !app.querySelector('.case-tab')) return; // another screen: wait until the תיק is back
-  w.next = Date.now() + (document.visibilityState === 'visible' ? 4000 : 20000);
-  prepBusy = true;
-  let r;
-  try { r = await api('meetText', { email: w.email, n: w.n }); } finally { prepBusy = false; }
-  if (!r || !r.ok || prepWait !== w || currentClient !== w.email) return;
-  // what the Claude page reported (only for this request, and only since it was opened now)
-  if (r.claude && r.claude.req === w.req && r.claude.stateMs >= w.started - 5000 && r.claude.state !== 'done') w.state = r.claude.state;
-  const p = r[w.field];
-  if (p && p.at + p.text !== w.was) {
-    w.was = p.at + p.text; w.got++; w.gotAt = p.at; w.state = ''; w.until = Date.now() + 40 * 60000; // keep watching: a correction rewrites it again
-    cacheDrop('client_' + w.email);
-    const box = document.getElementById('m_' + w.field);
-    if (box && meetSel[w.email] === w.n) { // on screen: just the text changes
-      box.value = p.text; box.defaultValue = p.text;
-      box.classList.remove('fresh'); void box.offsetWidth; box.classList.add('fresh');
-      const by = box.parentNode.querySelector('h4 .by'); if (by) by.textContent = ' · ' + (p.byName || '') + ', ' + fmtWhen(p.at);
-    } else {
-      const full = await api('clientGet', { email: w.email });
-      if (full.ok && prepWait === w && currentClient === w.email && app.querySelector('.case-tab')) {
-        cachePut('client_' + w.email, full); meetSel[w.email] = w.n; drawClient(full, true);
-      }
+  claudeFlash = null;
+  // what was typed in the other boxes stays (they are kept through the redraws)
+  const redraw = () => { if (currentClient === c.email && app.querySelector('.case-tab')) { meetSel[c.email] = n; drawClient(r, true); } };
+  const start = await api('claudeStart', { email: c.email, n: n, comment: comment });
+  if (!start.ok) { if (!start.handled) msg.replaceChildren(msgBox(start.message)); return; }
+  claudeRun = { email: c.email, n: n, field: field, text: '', part: 0, rewrite: !!comment, stop: false };
+  redraw();
+  let res = null;
+  for (let tries = 0; ; ) {
+    if (claudeRun.stop) { claudeFlash = { email: c.email, n: n, text: 'נעצר. מה שנכתב עד העצירה לא נשמר; הטקסט הקודם נשאר.', error: true }; break; }
+    res = await api('claudeStep', { job: start.job });
+    if (!res.ok) {
+      if (res.handled) { claudeRun = null; return; }
+      if (/עוד נכתב/.test(res.message || '') && tries++ < 20) { await new Promise(x => setTimeout(x, 3000)); continue; }
+      claudeFlash = { email: c.email, n: n, text: res.message || 'Claude לא הצליח לכתוב. אפשר לנסות שוב.', error: true }; break;
     }
+    claudeRun.text = res.text; claudeRun.part = res.part || claudeRun.part + 1;
+    const box = document.getElementById('m_' + field);
+    if (box && currentClient === c.email && meetSel[c.email] === n) { box.value = res.text; box.scrollTop = box.scrollHeight; const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(חלק ' + claudeRun.part + ')'; }
+    if (res.done) break;
   }
-  paintWait();
-}, 1000);
+  if (res && res.ok && res.done) {
+    if (res.entries) r.entries = res.entries;
+    cachePut('client_' + c.email, r);
+    claudeFlash = { email: c.email, n: n, text: comment ? 'הטקסט עודכן לפי ההערה ונשמר.' : 'נשמר.' };
+  }
+  claudeRun = null;
+  const box = document.getElementById('m_' + field);
+  if (box) box.defaultValue = box.value;
+  redraw();
+}
 
 // ---------- managing the תיק: archive, and (admins) deleting everything ----------
 function manageCase(r) {
@@ -1323,8 +1273,6 @@ async function showSettings() {
   if (!s.ok || !g.ok) { const bad = !s.ok ? s : g; if (!bad.handled) render(menu('settings'), msgBox(bad.message)); return; }
   const msg = el('div');
   const gender = radios('s_gender', [['f', 'יועצת (נקבה)'], ['m', 'יועץ (זכר)']], s.settings.gender);
-  const canSet = !!s.settings.canSetClaude;
-  const link = canSet ? el('input', { type: 'url', id: 's_link', dir: 'ltr', value: s.settings.claudeUrl, placeholder: 'https://claude.ai/artifact/…' }) : null;
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירה');
   const guideBox = el('div');
   drawGuides(guideBox, g);
@@ -1332,19 +1280,13 @@ async function showSettings() {
     el('form', { class: 'card', onsubmit: async (e) => {
       e.preventDefault(); msg.replaceChildren();
       await withBusy(btn, async () => {
-        const res = await api('mySettings', canSet ? { set: true, gender: gender.value(), claudeUrl: link.value } : { set: true, gender: gender.value() });
+        const res = await api('mySettings', { set: true, gender: gender.value() });
         if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
         msg.append(msgBox('נשמר.', 'success'));
       });
     } },
       el('h2', {}, 'שלי'),
       el('div', { class: 'field' }, el('span', {}, 'בטקסטים ש-Claude כותב בשמי, אני כותב/ת בלשון'), gender.node),
-      el('h2', {}, 'דף Claude של הצוות'),
-      canSet ? field('הקישור לדף Claude (אחד לכל הצוות)', link)
-        : el('p', { class: 'claude-team-link' }, s.settings.claudeUrl ? el('a', { href: s.settings.claudeUrl, target: '_blank', rel: 'noopener', dir: 'ltr' }, s.settings.claudeUrl)
-          : el('span', { class: 'muted' }, 'עוד לא הוגדר. מנהל/ת מגדיר/ה אותו כאן.')),
-      el('p', { class: 'hint' }, 'כל היועצים עובדים עם אותו דף, ובעלת הדף יכולה לעדכן אותו לכולם. כדי שהדף ייפתח לך: הוא צריך להיות משותף עם חשבון Claude שלך, ו-Google Sheets צריך להיות מחובר בחשבון הזה.' +
-        (canSet ? ' את הקישור מעתיקים מהדף ב-claude.ai.' : '')),
       msg, el('div', { class: 'row' }, btn)),
     guideBox);
 }

@@ -386,3 +386,9 @@ textarea.fresh { animation: freshtext 2.4s ease-out; }
 .m1-analysis > summary { cursor: pointer; list-style-position: inside; }
 .m1-analysis > summary h4 { display: inline; margin: 0; }
 .client-frame.inline-analysis { display: block; width: 100%; height: 75vh; min-height: 420px; border: 1px solid var(--rule, #e3e0d6); border-radius: 8px; margin-top: 8px; background: #fff; }
+
+/* Claude writing straight into the interaction */
+.claude-live { margin: 4px 0 6px; color: var(--ink); }
+textarea.claude-writing { background: #f7f8f2; }
+.claude-note { margin-top: 8px; }
+.claude-note textarea { min-height: 3em; }
