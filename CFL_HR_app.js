@@ -50,6 +50,7 @@ async function api(action, data) {
     return { ok: false, handled: true };
   }
   if (out.me) { me = out.me; navName.textContent = me.name || me.email; logoutBtn.hidden = false; paintMenu(); }
+  if (typeof out._ms === 'number') console.info('[שרת] ' + action + ': ' + out._ms + ' ms בשרת'); // to see where the time goes
   return out;
 }
 
