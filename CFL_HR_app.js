@@ -677,7 +677,8 @@ function interactionCard(r, ms, n) {
   const claudePart = el('div', { class: 'mtg-part prep' }, el('h4', {}, cName,
       cT && !live ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null, wordBtn ? ' ' : null, wordBtn),
     live ? el('p', { class: 'claude-live small' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
-      live.starting ? 'מכין את התיק בשביל Claude… ' : live.rewrite ? 'Claude כותב מחדש לפי ההערה… ' : 'Claude כותב… ', live.part ? '(חלק ' + live.part + ')' : (meet ? 'זה לוקח בערך שתיים–שלוש דקות.' : 'זה לוקח בערך דקה או שתיים.'), ' ', live.starting ? null : stopBtn) : null,
+      live.starting ? 'מכין את התיק בשביל Claude… ' : live.phase === 'review' ? 'הטיוטה נשמרה. Claude בודק אותה מול החומר… ' : live.rewrite ? 'Claude כותב מחדש לפי ההערה… ' : 'Claude כותב… ',
+      live.phase === 'review' ? (live.rpart ? '(בדיקה, חלק ' + live.rpart + ')' : '') : live.part ? '(חלק ' + live.part + ')' : (meet ? 'זה לוקח כמה דקות.' : 'זה לוקח בערך דקה או שתיים.'), ' ', live.starting ? null : stopBtn) : null,
     textView,
     m.done ? null : cMsg,
     m.done ? el('p', { class: 'hint claude-closed' }, cT ? 'האינטראקציה התקיימה, ולכן Claude כבר לא כותב אליה. זו הגרסה האחרונה.' : 'לא נכתב טקסט עם Claude באינטראקציה הזו.')
@@ -688,10 +689,12 @@ function interactionCard(r, ms, n) {
     m.done || live ? null : el('div', { class: 'row' }, noteBtn, cBtn));
   if (!live && claudeFlash && claudeFlash.email === c.email && claudeFlash.n === n) cMsg.append(claudeFlash.error ? msgBox(claudeFlash.text) : el('span', { class: 'saved-note' }, claudeFlash.text));
 
-  const TEXTS = meet ? [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות', 'מה סוכם, ומה הכיוון להמשך']]
+  const TEXTS = meet ? [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות', 'מה סוכם, ומה הכיוון להמשך'],
+      ['gaps', 'פערים שראיתי', 'מה עלה בפגישה שלא תאם את מה שאמרו השאלונים (Claude בונה מזה "קומת פגישה" בהכנה הבאה)']]
     : [['decisions', 'מה הוחלט', 'מה עולה ממה שהתקבל, ומה עושים עכשיו']];
   const areas = TEXTS.map(([f, lab, ph]) => {
     const x = el('textarea', { id: 'm_' + f, 'data-keep': '1', rows: f === 'summary' ? '5' : '3', placeholder: ph }, (T[f] || {}).text || '');
+    if (f === 'gaps') x.classList.add('gaps-box');
     return el('label', { class: 'field mtg-text' }, el('span', {}, lab,
       T[f] && T[f].text ? el('span', { class: 'muted small by' }, ' · ' + (T[f].byName || '') + ', ' + fmtWhen(T[f].at)) : null), x);
   });
@@ -781,6 +784,28 @@ function interactionCard(r, ms, n) {
     el('div', { class: 'row' }, save, msg));
 }
 
+// The algorithmic analysis of שאלון הכניסה ("מפת שיחה ליועץ/ת"): the intake page builds it; the site loads that page
+// out of sight (same address family, so its text can be read) and takes the text. '' when there is no intake or it fails.
+async function readIntakeAnalysis(r) {
+  const q = (r.questionnaires || []).filter(x => x.id === 'intake')[0];
+  if (!q || !q.state || !q.page || typeof CFL_HR_CLIENT_SITE !== 'string') return '';
+  const frame = clientFrame(q, r.client, 'view-analysis');
+  frame.setAttribute('aria-hidden', 'true'); frame.tabIndex = -1;
+  frame.style.cssText = 'position:absolute;left:-10000px;top:0;width:900px;height:900px;visibility:hidden';
+  frame.removeAttribute('loading');
+  document.body.append(frame);
+  try {
+    for (let i = 0; i < 40; i++) {
+      await new Promise(ok => setTimeout(ok, 250));
+      let d = null; try { d = frame.contentDocument; } catch (e) { return ''; }
+      const app = d && (d.getElementById('app') || d.body);
+      const txt = app ? String(app.innerText || app.textContent || '').trim() : '';
+      if (txt.length > 300 && /מפת שיחה/.test(txt)) return txt.replace(/\n{3,}/g, '\n\n').slice(0, 20000);
+    }
+    return '';
+  } finally { frame.remove(); }
+}
+
 // ---------- the prep document: the Markdown Claude writes, shown as a page and built into a Word file ----------
 // Blocks: headings (#, ##, ###), tables (| … |), list items (- / • / 1.), and one paragraph per line; **bold** inside.
 function mdBlocks(text) {
@@ -803,8 +828,9 @@ function mdBlocks(text) {
       if (rows.length) out.push({ t: 'table', rows: rows.map(r => r.concat(Array(w - r.length).fill(''))) });
       continue;
     }
-    if ((m = s.match(/^[-•*]\s+(.*)$/))) { out.push({ t: 'li', text: m[1] }); continue; }
-    if ((m = s.match(/^(\d+)[.)]\s+(.*)$/))) { out.push({ t: 'li', n: m[1], text: m[2] }); continue; }
+    // a question for the נועץ ("- **מה לשאול:** …", or a numbered line that opens with a quote) shows in a box
+    if ((m = s.match(/^[-•*]\s+(.*)$/))) { out.push({ t: 'li', text: m[1], q: /^\*\*מה לשאול:?\*\*/.test(m[1]) }); continue; }
+    if ((m = s.match(/^(\d+)[.)]\s+(.*)$/))) { out.push({ t: 'li', n: m[1], text: m[2], q: /^["״“”]/.test(m[2]) }); continue; }
     out.push({ t: 'p', text: s });
   }
   return out;
@@ -815,17 +841,19 @@ function mdRuns(s) {
 }
 function docView(text, extra, id) {
   const inl = s => mdRuns(s).map(r => r.b ? el('b', {}, r.text) : r.text);
-  const body = el('div', { class: 'prep-doc' + (extra ? ' ' + extra : ''), id: id || null, dir: 'rtl' });
-  let list = null;
+  const doc = el('div', { class: 'prep-doc' + (extra ? ' ' + extra : ''), id: id || null, dir: 'rtl' });
+  let list = null, body = doc;
   mdBlocks(text).forEach(b => {
     if (b.t !== 'li') list = null;
+    if (b.t === 'h2') body = doc; // the check's lines ("## בדיקת איכות") go in their own grey box
     if (b.t === 'h1') body.append(el('h3', { class: 'doc-title' }, inl(b.text)));
+    else if (b.t === 'h2' && /^בדיקת איכות/.test(b.text)) { body = el('div', { class: 'doc-check' }, el('h4', { class: 'doc-h' }, inl(b.text))); doc.append(body); }
     else if (b.t === 'h2') body.append(el('h4', { class: 'doc-h' }, inl(b.text)));
     else if (b.t === 'h3') body.append(el('h5', { class: 'doc-h3' }, inl(b.text)));
     else if (b.t === 'p') body.append(el('p', {}, inl(b.text)));
     else if (b.t === 'li') {
       if (!list || list.dataset.ol !== (b.n ? '1' : '')) { list = el(b.n ? 'ol' : 'ul', { 'data-ol': b.n ? '1' : '' }); body.append(list); }
-      list.append(el('li', {}, inl(b.text)));
+      list.append(el('li', b.q ? { class: 'doc-q' } : {}, inl(b.text)));
     } else if (b.t === 'table') {
       const head = b.rows[0], rest = b.rows.slice(1);
       body.append(el('div', { class: 'doc-table' }, el('table', {},
@@ -833,7 +861,7 @@ function docView(text, extra, id) {
         el('tbody', {}, rest.map(r => el('tr', {}, r.map((c, i) => el(i === 0 ? 'th' : 'td', i === 0 ? { scope: 'row' } : {}, inl(c)))))))));
     }
   });
-  return body;
+  return doc;
 }
 // the Word file is built here in the browser (docx, loaded the first time it's needed)
 let docxLib = null;
@@ -854,12 +882,15 @@ async function downloadDocx(text, filename, msg) {
   const runs = (s, o) => mdRuns(s).map(r => new D.TextRun({ text: r.text, bold: !!(r.b || (o && o.bold)), rightToLeft: true, font: 'Arial', size: (o && o.size) || 22, color: o && o.color }));
   const para = (s, o) => new D.Paragraph(Object.assign({ bidirectional: true, spacing: { after: 120, line: 300 }, children: runs(s, o) }, o && o.para));
   const children = [];
+  let inCheck = false;
   mdBlocks(text).forEach(b => {
+    if (b.t === 'h2') inCheck = /^בדיקת איכות/.test(b.text);
     if (b.t === 'h1') children.push(para(b.text, { bold: true, size: 32, para: { spacing: { after: 60 } } }));
     else if (b.t === 'h2') children.push(para(b.text, { bold: true, size: 26, color: OLIVE, para: { spacing: { before: 280, after: 120 } } }));
     else if (b.t === 'h3') children.push(para(b.text, { bold: true, size: 23 }));
-    else if (b.t === 'p') children.push(para(b.text));
-    else if (b.t === 'li') children.push(para((b.n ? b.n + '. ' : '• ') + b.text, { para: { indent: { start: 360 } } }));
+    else if (b.t === 'p') children.push(para(b.text, inCheck ? { color: '6E6A5F', size: 20 } : undefined));
+    else if (b.t === 'li') children.push(para((b.n ? b.n + '. ' : '• ') + b.text, { color: inCheck ? '6E6A5F' : undefined,
+      para: Object.assign({ indent: { start: 360 } }, b.q ? { shading: { fill: 'F3EEDF', type: D.ShadingType.CLEAR, color: 'auto' }, border: { right: { style: D.BorderStyle.SINGLE, size: 12, color: 'B08A3E', space: 6 } } } : {}) }));
     else if (b.t === 'table') {
       const border = { style: D.BorderStyle.SINGLE, size: 4, color: 'C9C5B9' };
       children.push(new D.Table({
@@ -897,7 +928,9 @@ async function claudeWrite(r, n, field, comment, msg, btn) {
   // on screen even if the page was redrawn meanwhile
   claudeRun = { email: c.email, n: n, field: field, text: '', part: 0, rewrite: !!comment, stop: false, starting: true };
   redraw();
-  const start = await api('claudeStart', { email: c.email, n: n, comment: comment });
+  // the algorithmic analysis of שאלון הכניסה is built by its page: read it from there, so Claude gets what the יועצת gets
+  const intakeAnalysis = field === 'prep' ? await readIntakeAnalysis(r) : '';
+  const start = await api('claudeStart', { email: c.email, n: n, comment: comment, intakeAnalysis: intakeAnalysis });
   if (!start.ok) {
     claudeRun = null;
     if (!start.handled) claudeFlash = { email: c.email, n: n, text: start.message || 'Claude לא הצליח להתחיל. אפשר לנסות שוב.', error: true };
@@ -909,7 +942,7 @@ async function claudeWrite(r, n, field, comment, msg, btn) {
   redraw();
   let res = null;
   for (let tries = 0; ; ) {
-    if (claudeRun.stop) { claudeFlash = { email: c.email, n: n, text: 'נעצר. מה שנכתב עד העצירה לא נשמר; הטקסט הקודם נשאר.', error: true }; break; }
+    if (claudeRun.stop) { claudeFlash = { email: c.email, n: n, text: claudeRun.phase === 'review' ? 'הבדיקה נעצרה. הטיוטה נשמרה.' : 'נעצר. מה שנכתב עד העצירה לא נשמר; הטקסט הקודם נשאר.', error: claudeRun.phase !== 'review' }; break; }
     res = await api('claudeStep', { job: start.job });
     if (!res.ok) {
       if (res.handled) { claudeRun = null; return; }
@@ -917,14 +950,19 @@ async function claudeWrite(r, n, field, comment, msg, btn) {
       claudeFlash = { email: c.email, n: n, text: res.message || 'Claude לא הצליח לכתוב. אפשר לנסות שוב.', error: true }; break;
     }
     claudeRun.text = res.text; claudeRun.part = res.part || claudeRun.part + 1;
+    if (res.phase === 'review' && claudeRun.phase !== 'review') {
+      claudeRun.phase = 'review'; if (res.entries) r.entries = res.entries; cachePut('client_' + c.email, r); redraw();
+    }
+    if (res.rpart) { claudeRun.rpart = res.rpart; const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(בדיקה, חלק ' + res.rpart + ')'; }
     const box = document.getElementById('m_' + field);
-    if (box && currentClient === c.email && meetSel[c.email] === n) { if (box.tagName === 'TEXTAREA') { box.value = res.text; box.scrollTop = box.scrollHeight; } else box.replaceWith(docView(res.text, 'claude-writing', box.id)); const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(חלק ' + claudeRun.part + ')'; }
+    if (box && currentClient === c.email && meetSel[c.email] === n && claudeRun.phase !== 'review') { if (box.tagName === 'TEXTAREA') { box.value = res.text; box.scrollTop = box.scrollHeight; } else box.replaceWith(docView(res.text, 'claude-writing', box.id)); const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(חלק ' + claudeRun.part + ')'; }
     if (res.done) break;
   }
   if (res && res.ok && res.done) {
     if (res.entries) r.entries = res.entries;
     cachePut('client_' + c.email, r);
-    claudeFlash = { email: c.email, n: n, text: comment ? 'הטקסט עודכן לפי ההערה ונשמר.' : 'נשמר.' };
+    claudeFlash = { email: c.email, n: n, text: (comment ? 'הטקסט עודכן לפי ההערה ונשמר.' : 'נשמר.') +
+      (res.reviewed === 'applied' ? ' עבר בדיקה מול החומר.' : res.note ? ' ' + res.note : '') };
   }
   claudeRun = null;
   const box = document.getElementById('m_' + field);
@@ -1374,14 +1412,12 @@ async function showSettings() {
   if (!(await ensureMe())) return;
   const seq = ++viewSeq;
   loading('settings');
-  const [s, g] = await Promise.all([api('mySettings'), api('guideList')]);
+  const s = await api('mySettings');
   if (seq !== viewSeq) return;
-  if (!s.ok || !g.ok) { const bad = !s.ok ? s : g; if (!bad.handled) render(menu('settings'), msgBox(bad.message)); return; }
+  if (!s.ok) { if (!s.handled) render(menu('settings'), msgBox(s.message)); return; }
   const msg = el('div');
   const gender = radios('s_gender', [['f', 'יועצת (נקבה)'], ['m', 'יועץ (זכר)']], s.settings.gender);
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירה');
-  const guideBox = el('div');
-  drawGuides(guideBox, g);
   render(menu('settings'), el('h1', {}, 'הגדרות'),
     el('form', { class: 'card', onsubmit: async (e) => {
       e.preventDefault(); msg.replaceChildren();
@@ -1394,32 +1430,7 @@ async function showSettings() {
       el('h2', {}, 'שלי'),
       el('div', { class: 'field' }, el('span', {}, 'בטקסטים ש-Claude כותב בשמי, אני כותב/ת בלשון'), gender.node),
       msg, el('div', { class: 'row' }, btn)),
-    guideBox);
-}
-
-function drawGuides(box, g) {
-  const msg = el('div');
-  const text = el('textarea', { id: 'g_text', rows: '2', placeholder: 'למשל: לכתוב בשפה פשוטה יותר, בלי מילים גבוהות' });
-  const btn = el('button', { type: 'submit', class: 'btn primary' }, 'הוספה');
-  const item = (x) => el('div', { class: 'guide' }, el('span', {}, x.text), el('span', { class: 'muted small' }, ' · ' + x.byName + ' · ' + x.at),
-    el('button', { type: 'button', class: 'link-btn small', onclick: async () => {
-      const res = await api('guideDelete', { id: x.id });
-      if (!res.ok) { if (!res.handled) msg.replaceChildren(msgBox(res.message)); return; }
-      drawGuides(box, res);
-    } }, 'מחיקה'));
-  box.replaceChildren(el('form', { class: 'card', onsubmit: async (e) => {
-    e.preventDefault(); msg.replaceChildren();
-    if (!text.value.trim()) return;
-    await withBusy(btn, async () => {
-      const res = await api('guideAdd', { text: text.value });
-      if (!res.ok) { if (!res.handled) msg.append(msgBox(res.message)); return; }
-      drawGuides(box, res);
-    });
-  } },
-    el('h2', {}, 'מה לימדנו את Claude'),
-    el('p', { class: 'hint' }, 'הנחיות קבועות לכל הצוות: Claude פועל לפיהן בכל טקסט שהוא כותב, לכל יועץ/ת.'),
-    g.shared.length ? g.shared.map(item) : el('p', { class: 'muted small' }, 'אין עדיין.'),
-    el('h3', {}, 'הנחיה חדשה'), text, msg, el('div', { class: 'row' }, btn)));
+    el('p', { class: 'hint small' }, 'מה Claude יודע ואיך הוא כותב נקבע במאגר ההנחיות של נורית (chozeIm-prompts), לכל הצוות.'));
 }
 
 // ===================== Start =====================

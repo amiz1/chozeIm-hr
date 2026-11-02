@@ -409,3 +409,9 @@ textarea.claude-writing { background: #f7f8f2; }
 .prep-doc thead th{background:#EEF0E6}
 .prep-doc tbody th{background:#FAF9F5;font-weight:600;white-space:nowrap}
 .prep-word{margin-inline-start:8px}
+/* in the prep: questions for the נועץ in a box; the check's lines in grey */
+.prep-doc li.doc-q{list-style:none;background:#F7F2E4;border-right:3px solid #B08A3E;padding:6px 10px;margin:6px -22px 6px 0;border-radius:3px}
+.prep-doc ol li.doc-q{list-style:decimal inside}
+.prep-doc .doc-check{background:#F4F3EF;border:1px solid #E2DFD5;border-radius:6px;padding:8px 12px;margin-top:16px;color:#6E6A5F;font-size:14px}
+.prep-doc .doc-check .doc-h{color:#6E6A5F;border:0;margin-top:0}
+textarea.gaps-box{border-right:3px solid #B08A3E}
