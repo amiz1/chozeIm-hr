@@ -1092,10 +1092,9 @@ function caseDetails(r, L) {
       msg, el('div', { class: 'row' }, btn)));
 }
 
-// When you come back to this tab (from Claude), the תיק on screen is refreshed
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && currentClient && app.querySelector('.case-tab')) showClient(currentClient);
-});
+// (Until 31.10, coming back to this tab from the Claude page redrew the תיק. Claude now works inside the site, so
+// switching windows changes nothing on screen: what you are typing and where you are stay as they were.
+// "רענן" at the top pulls the newest data when you want it.)
 
 // One questionnaire on the נועץ page: title, the "פתוח למילוי / סגור" switch, status, and the answers button when sent
 function questionnaireRow(q, client) {
