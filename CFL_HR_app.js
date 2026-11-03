@@ -1177,7 +1177,31 @@ function manageCase(r) {
         el('p', { class: 'hint' }, 'התיק יוסתר מרשימת הנועצים, וכל המידע נשמר. אפשר להחזיר אותו בכל עת (בסימון "ארכיון" ברשימה). לנועץ/ת לא משתנה דבר.')), arch),
       me && me.admin ? el('div', { class: 'manage-row danger' }, el('div', {}, el('b', {}, 'מחיקה מלאה'),
         el('p', { class: 'hint' }, 'מחיקת כל המידע על הנועץ/ת, לפי בקשה (חוק הגנת הפרטיות). אי אפשר לבטל. למנהלים בלבד, ודורש כניסה מחדש עם Google.')),
-        el('button', { type: 'button', class: 'btn danger small', id: 'deleteBtn', onclick: () => deleteDialog(r) }, 'מחיקה מלאה…')) : null));
+        el('button', { type: 'button', class: 'btn danger small', id: 'deleteBtn', onclick: () => deleteDialog(r) }, 'מחיקה מלאה…')) : null,
+      me && me.admin ? emailRow(r) : null));
+}
+
+// "שינוי אימייל" (admins): the whole תיק moves to another address (a temporary one from an import, or another Google account)
+function emailRow(r) {
+  const c = r.client;
+  const msg = el('div', { 'aria-live': 'polite' });
+  const inp = el('input', { type: 'email', id: 'newEmail', dir: 'ltr', autocomplete: 'off', placeholder: 'name@gmail.com', 'aria-label': 'האימייל החדש' });
+  const btn = el('button', { type: 'button', class: 'btn secondary small', id: 'emailBtn', onclick: () => {
+    const to = inp.value.trim().toLowerCase();
+    if (!to) { msg.replaceChildren(msgBox('כתבו את האימייל החדש.')); return; }
+    msg.replaceChildren(el('div', { class: 'msg confirm-again' }, 'להעביר את כל התיק מ-', el('bdi', { dir: 'ltr' }, c.email), ' ל-', el('bdi', { dir: 'ltr' }, to), '? הכניסה לאתר הנועצים תהיה מעכשיו עם הכתובת החדשה. ',
+      el('button', { type: 'button', class: 'btn primary small', id: 'emailYes', onclick: async (e) => {
+        const res = await withBusy(e.currentTarget, () => api('clientEmail', { email: c.email, newEmail: to }));
+        if (!res.ok) { if (!res.handled) msg.replaceChildren(msgBox(res.message)); return; }
+        cacheDrop('client_' + c.email); listPatch(c.email, { email: res.email });
+        await showClient(res.email);
+        app.querySelector('h1').after(msgBox('התיק הועבר ל-' + res.email + '.', 'success'));
+      } }, 'כן, להעביר'), ' ',
+      el('button', { type: 'button', class: 'btn secondary small', onclick: () => msg.replaceChildren() }, 'ביטול')));
+  } }, 'העברה');
+  return el('div', { class: 'manage-row' }, el('div', {}, el('b', {}, 'שינוי אימייל'),
+    el('p', { class: 'hint' }, 'מעביר את כל התיק (פרטים, תשובות, רשמים, שיקופים וקבצים) לכתובת אחרת. הכניסה לאתר הנועצים היא עם חשבון Google של הכתובת החדשה. למנהלים בלבד.'),
+    el('div', { class: 'row' }, inp), msg), btn);
 }
 
 function deleteDialog(r) {
