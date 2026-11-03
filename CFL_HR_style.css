@@ -439,3 +439,8 @@ textarea.gaps-box{border-right:3px solid #B08A3E}
 .cv-read-row { padding: 4px 16px 10px; }
 .cv-read.ok { color: var(--olive); }
 .cv-read.bad { color: #8A3B2C; }
+
+/* passages a note to Claude changed, marked for a moment */
+.prep-doc .just-edited { background: #F3EEDF; box-shadow: 0 0 0 4px #F3EEDF; transition: background 1.5s, box-shadow 1.5s; }
+.prep-continue { margin-inline-end: auto; }
+.confirm-again { background: var(--tint); border-right: 3px solid var(--gold); color: var(--ink); }

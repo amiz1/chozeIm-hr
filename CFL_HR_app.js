@@ -832,8 +832,18 @@ function interactionCard(r, ms, n) {
   // Claude writes straight into this box (in parts, so the text grows); a note under it makes Claude rewrite the same text
   const live = claudeRun && claudeRun.email === c.email && claudeRun.n === n && claudeRun.field === field ? claudeRun : null;
   const firstLabel = meet ? 'הכנה לפגישה עם Claude' : 'עיבוד עם Claude';
-  const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude', disabled: !!live,
-    onclick: (e) => claudeWrite(r, n, field, '', cMsg, e.currentTarget) }, cT ? 'כתיבה מחדש עם Claude' : firstLabel);
+  // writing again from the start replaces the text there: asked first, right here
+  const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude', disabled: !!live, onclick: (e) => {
+    if (!cT) { claudeWrite(r, n, field, '', cMsg, e.currentTarget); return; }
+    const b = e.currentTarget;
+    cMsg.replaceChildren(el('div', { class: 'msg confirm-again' }, 'לכתוב מחדש מההתחלה? ' + (meet ? 'ההכנה הקיימת תוחלף.' : 'הטקסט הקיים יוחלף.') + ' (לתיקון נקודתי: הערה ל-Claude.) ',
+      el('button', { type: 'button', class: 'btn primary small again-yes', onclick: () => claudeWrite(r, n, field, '', cMsg, b) }, 'כן, לכתוב מחדש'), ' ',
+      el('button', { type: 'button', class: 'btn secondary small again-no', onclick: () => cMsg.replaceChildren() }, 'ביטול')));
+  } }, cT ? 'כתיבה מחדש מההתחלה' : firstLabel);
+  // a text cut by the length limit goes on from where it stopped
+  const isCut = !!(cT && /\*\*\(הטקסט נקטע כאן[^\n]*\)\*\*\s*$/.test(cT.text));
+  const contBtn = isCut && !live && !m.done ? el('button', { type: 'button', class: 'btn primary prep-continue',
+    onclick: (e) => claudeWrite(r, n, field, '', cMsg, e.currentTarget, { cont: true }) }, 'המשך מהמקום שנעצר') : null;
   const note = cT && !m.done ? el('textarea', { id: 'm_note', rows: '2', placeholder: 'מה לתקן, לקצר, להוסיף, או מה לא מדויק' }) : null;
   const noteBtn = note ? el('button', { type: 'button', class: 'btn secondary small prep-revise', disabled: !!live, onclick: () => {
     const v = note.value.trim(); if (!v) { cMsg.replaceChildren(msgBox('כתבו קודם מה לשנות.')); return; }
@@ -850,7 +860,7 @@ function interactionCard(r, ms, n) {
   const claudePart = el('div', { class: 'mtg-part prep' }, el('h4', {}, cName,
       cT && !live ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null, wordBtn ? ' ' : null, wordBtn),
     live ? el('p', { class: 'claude-live small' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
-      live.starting ? 'מכין את התיק בשביל Claude… ' : live.phase === 'review' ? 'הטיוטה נשמרה. Claude בודק אותה מול החומר… ' : live.rewrite ? 'Claude כותב מחדש לפי ההערה… ' : 'Claude כותב… ',
+      live.starting ? 'מכין את התיק בשביל Claude… ' : live.phase === 'review' ? 'הטיוטה נשמרה. Claude בודק אותה מול החומר… ' : live.rewrite ? 'Claude מעדכן לפי ההערה… ' : live.cont ? 'Claude ממשיך מהמקום שנעצר… ' : 'Claude כותב… ',
       live.phase === 'review' ? (live.rpart ? '(בדיקה, חלק ' + live.rpart + ')' : '') : live.part ? '(חלק ' + live.part + ')' : (meet ? 'זה לוקח כמה דקות.' : 'זה לוקח בערך דקה או שתיים.'), ' ', live.starting ? null : stopBtn) : null,
     textView,
     m.done ? null : cMsg,
@@ -859,7 +869,7 @@ function interactionCard(r, ms, n) {
         ? 'Claude כותב הכנה לפגישה במבנה קבוע: תמונת מצב, השערת עבודה, מה עולה לפי נושאים, סתירות לבדוק, כוחות, נקודות לתשומת לב, מה מיטבי עד עכשיו, תוכנית לפגישה, הצעד הבא ומה עוד חסר. ההכנה נשמרת כאן, ואפשר להוריד אותה כ-Word.'
         : 'אם רוצים: Claude עובר על מה שהתקבל, ומציע אם לשלוח עוד הכנה לפני הפגישה. הטקסט נשמר כאן.'),
     note && !live ? el('label', { class: 'field claude-note' }, el('span', {}, 'הערה ל-Claude'), note) : null,
-    m.done || live ? null : el('div', { class: 'row' }, noteBtn, cBtn));
+    m.done || live ? null : el('div', { class: 'row' }, contBtn, noteBtn, cBtn));
   if (!live && claudeFlash && claudeFlash.email === c.email && claudeFlash.n === n) cMsg.append(claudeFlash.error ? msgBox(claudeFlash.text) : el('span', { class: 'saved-note' }, claudeFlash.text));
 
   const TEXTS = meet ? [['summary', 'סיכום הפגישה', 'מה עלה? מה הרגשת?'], ['decisions', 'החלטות', 'מה סוכם, ומה הכיוון להמשך'],
@@ -1088,7 +1098,8 @@ async function downloadDocx(text, filename, msg) {
 // ---------- Claude, through the server (the key is there): the text is written in parts, each under a minute ----------
 let claudeRun = null;   // { email, n, field, text, part, rewrite, stop }: the text being written now
 let claudeFlash = null; // { email, n, text, error }: after it finished (or stopped)
-async function claudeWrite(r, n, field, comment, msg, btn) {
+async function claudeWrite(r, n, field, comment, msg, btn, opts) {
+  const cont = !!(opts && opts.cont); // "המשך מהמקום שנעצר"
   const c = r.client;
   if (claudeRun) { msg.replaceChildren(msgBox('Claude כבר כותב טקסט אחר. רגע…')); return; }
   // the press answers at once, right here, before anything else is drawn or asked of the server
@@ -1099,11 +1110,11 @@ async function claudeWrite(r, n, field, comment, msg, btn) {
   const redraw = () => { if (currentClient === c.email && app.querySelector('.case-tab')) { meetSel[c.email] = n; drawClient(r, true); } };
   // the card shows at once that Claude is starting (preparing the תיק can take a few seconds), and a problem stays
   // on screen even if the page was redrawn meanwhile
-  claudeRun = { email: c.email, n: n, field: field, text: '', part: 0, rewrite: !!comment, stop: false, starting: true };
+  claudeRun = { email: c.email, n: n, field: field, text: '', part: 0, rewrite: !!comment, cont: cont, stop: false, starting: true };
   redraw();
   // the algorithmic analysis of שאלון הכניסה is built by its page: read it from there, so Claude gets what the יועצת gets
   const intakeAnalysis = field === 'prep' ? await readIntakeAnalysis(r) : '';
-  const start = await api('claudeStart', { email: c.email, n: n, comment: comment, intakeAnalysis: intakeAnalysis });
+  const start = await api('claudeStart', { email: c.email, n: n, comment: comment, cont: cont, intakeAnalysis: intakeAnalysis });
   if (!start.ok) {
     claudeRun = null;
     if (!start.handled) claudeFlash = { email: c.email, n: n, text: start.message || 'Claude לא הצליח להתחיל. אפשר לנסות שוב.', error: true };
@@ -1134,13 +1145,23 @@ async function claudeWrite(r, n, field, comment, msg, btn) {
   if (res && res.ok && res.done) {
     if (res.entries) r.entries = res.entries;
     cachePut('client_' + c.email, r);
-    claudeFlash = { email: c.email, n: n, text: (comment ? 'הטקסט עודכן לפי ההערה ונשמר.' : 'נשמר.') +
-      (res.reviewed === 'applied' ? ' עבר בדיקה מול החומר.' : res.note ? ' ' + res.note : '') };
+    // a note: "עודכנו N מקומות לפי ההערה" (only those passages changed); then whether the check was applied
+    claudeFlash = { email: c.email, n: n, text: comment ? (res.note || 'הטקסט עודכן לפי ההערה.') + (res.reviewed === 'applied' ? ' עבר בדיקה מול החומר.' : '') + ' נשמר.'
+      : 'נשמר.' + (res.reviewed === 'applied' ? ' עבר בדיקה מול החומר.' : res.note ? ' ' + res.note : '') };
   }
+  const changed = res && res.ok && res.done && comment ? (res.changed || []) : [];
   claudeRun = null;
   const box = document.getElementById('m_' + field);
   if (box && box.tagName === 'TEXTAREA') box.defaultValue = box.value;
   redraw();
+  // the passages the note changed are marked for a moment
+  const doc = document.getElementById('m_' + field);
+  if (doc && doc.tagName !== 'TEXTAREA' && changed.length) {
+    doc.querySelectorAll('p, li, td, th, h4, h5').forEach(x => {
+      const t = x.textContent.replace(/\s+/g, ' ');
+      if (changed.some(c => c && t.indexOf(c.replace(/\s+/g, ' ').slice(0, 30)) !== -1)) { x.classList.add('just-edited'); setTimeout(() => x.classList.remove('just-edited'), 6000); }
+    });
+  }
 }
 
 // ---------- managing the תיק: archive, and (admins) deleting everything ----------
