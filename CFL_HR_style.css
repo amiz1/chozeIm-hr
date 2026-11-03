@@ -358,8 +358,27 @@ table.clients .muted { color: var(--mute); }
 .qlegend .dot { width: 8px; height: 8px; }
 
 /* "רענן" and when the page's data was last pulled */
-.refresh-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin: -6px 0 6px; }
+.refresh-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin: -6px 0 6px; padding: 3px 10px; border: 1px solid transparent; border-radius: 999px; transition: background .3s, border-color .3s; }
 .refresh-bar .when { white-space: nowrap; }
+/* the server is answering: the data on screen is from the time shown */
+.refresh-bar.pulling { background: #FBF5E6; border-color: #E8D9B0; color: #6B5320; }
+.refresh-bar.fresh { background: #EEF3E4; border-color: #C9D5B0; color: var(--olive); }
+.refresh-bar.fresh .ok-mark { font-weight: 700; }
+.refresh-bar.fail { background: #FBEDEA; border-color: #E5C2BA; color: #8A3B2C; }
+.refresh-bar.pending { background: #F3EEDF; border-color: var(--gold); color: #6B5320; }
+.refresh-bar .spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid #E8D9B0; border-top-color: var(--gold); animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* new data arrived while you were typing: a small box asks before showing it */
+.update-ask { position: fixed; bottom: 20px; left: 20px; z-index: 50; max-width: 340px; background: var(--card); border: 1px solid var(--rule); border-top: 3px solid var(--gold);
+  box-shadow: 0 8px 28px rgba(0,0,0,.14); padding: 14px 16px; animation: askin .25s ease-out; }
+.update-ask p { margin: 4px 0 10px; color: var(--mute); }
+.update-ask .row { gap: 8px; margin: 0; }
+@keyframes askin { from { transform: translateY(12px); opacity: 0; } }
+@media (max-width: 600px) { .update-ask { left: 12px; right: 12px; bottom: 12px; max-width: none; } }
+/* a part of the תיק that just came in from the server */
+.just-updated { animation: justup 2.5s ease-out; }
+@keyframes justup { from { background-color: #F3EEDF; box-shadow: 0 0 0 4px #F3EEDF; } }
+@media (prefers-reduced-motion: reduce) { .refresh-bar .spin, .update-ask, .just-updated { animation: none; } }
 .top-row { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .top-row .back { margin: 0; }
 .top-row .refresh-bar { margin: 0; }

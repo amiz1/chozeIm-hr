@@ -55,32 +55,53 @@ async function api(action, data) {
 }
 
 // ===================== Remembering answers (makes moving around fast) =====================
-// Lists and נועץ pages are drawn at once from the last visit in this browser (kept until logout), then refreshed in the background.
-const CACHE_PREFIX = 'cfl_hr_c_';
-function cacheGet(key) {
+// The list and every תיק opened are kept in this browser (IndexedDB, room for hundreds of תיקים), drawn at once from
+// the last visit, then refreshed from the server. Kept until logout; a תיק not pulled for 30 days is forgotten.
+const CACHE_DB = 'cfl_hr_cache', CACHE_DAYS = 30;
+const mem = {}; // key -> { key, token, at, s } (s: the server's answer, as JSON)
+let idb = null;
+const idbReq = rq => new Promise((ok, bad) => { rq.onsuccess = () => ok(rq.result); rq.onerror = () => bad(rq.error); });
+const idbStore = mode => idb.transaction('pages', mode).objectStore('pages');
+const cacheReady = (async () => {
+  try { Object.keys(localStorage).filter(k => k.indexOf('cfl_hr_c_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) { } // the older way
   try {
-    const o = JSON.parse(localStorage.getItem(CACHE_PREFIX + key) || 'null');
-    return o && o.token === getToken() ? o.r : null;
-  } catch (e) { return null; }
+    idb = await new Promise((ok, bad) => {
+      const rq = indexedDB.open(CACHE_DB, 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('pages', { keyPath: 'key' });
+      rq.onsuccess = () => ok(rq.result); rq.onerror = () => bad(rq.error);
+      setTimeout(() => bad(new Error('slow')), 3000);
+    });
+    const all = await idbReq(idbStore('readonly').getAll());
+    const tok = getToken(), old = Date.now() - CACHE_DAYS * 86400000, drop = [];
+    all.forEach(o => { if (tok && o.token === tok && o.at > old) mem[o.key] = o; else drop.push(o.key); });
+    if (drop.length) { const st = idbStore('readwrite'); drop.forEach(k => st.delete(k)); }
+  } catch (e) { idb = null; } // no IndexedDB here (some private windows): pages are kept only while this tab is open
+})();
+function cacheGet(key) {
+  const o = mem[key];
+  if (!o || o.token !== getToken()) return null;
+  try { return JSON.parse(o.s); } catch (e) { return null; }
 }
-// when the page's data was last pulled from the server (shown next to "רענן")
+// when the page's data was last pulled from the server
 const fetchedAt = {};
-function cacheAt(key) {
-  if (fetchedAt[key]) return fetchedAt[key];
-  try { const o = JSON.parse(localStorage.getItem(CACHE_PREFIX + key) || 'null'); return o && o.at || 0; } catch (e) { return 0; }
-}
+function cacheAt(key) { return fetchedAt[key] || (mem[key] && mem[key].at) || 0; }
 function cachePut(key, r, at) {
   fetchedAt[key] = at || Date.now();
-  const s = JSON.stringify({ token: getToken(), r: r, at: fetchedAt[key] });
-  try { localStorage.setItem(CACHE_PREFIX + key, s); }
-  catch (e) { // the tab's storage is full: forget the other תיקים (never the list), then try again
-    try {
-      Object.keys(localStorage).filter(k => k.indexOf(CACHE_PREFIX + 'client_') === 0 && k !== CACHE_PREFIX + key).forEach(k => localStorage.removeItem(k));
-      localStorage.setItem(CACHE_PREFIX + key, s);
-    } catch (x) { }
-  }
+  const o = { key: key, token: getToken(), at: fetchedAt[key], s: JSON.stringify(r) };
+  mem[key] = o;
+  if (!idb) return;
+  try {
+    const tx = idb.transaction('pages', 'readwrite');
+    tx.objectStore('pages').put(o);
+    tx.onerror = () => { // the browser's room is full: forget the תיקים pulled longest ago (never the list), then try again
+      const old = Object.values(mem).filter(x => x.key.indexOf('client_') === 0 && x.key !== key).sort((a, b) => a.at - b.at);
+      const st = idbStore('readwrite');
+      old.slice(0, Math.max(5, Math.ceil(old.length / 2))).forEach(x => { delete mem[x.key]; st.delete(x.key); });
+      st.put(o);
+    };
+  } catch (e) { }
 }
-// The list is never thrown away (it is redrawn from the server right after it is shown); a change we know of is applied to it at once
+// a change we know of is applied to the kept list at once
 function listPatch(email, change) {
   const l = cacheGet('list');
   if (!l || !l.clients) return;
@@ -89,13 +110,18 @@ function listPatch(email, change) {
   if (change === null) l.clients.splice(i, 1); else Object.assign(l.clients[i], change);
   cachePut('list', l, cacheAt('list'));
 }
-function cacheDrop(key) { delete fetchedAt[key]; try { localStorage.removeItem(CACHE_PREFIX + key); } catch (e) { } }
+function cacheDrop(key) { delete fetchedAt[key]; delete mem[key]; if (idb) try { idbStore('readwrite').delete(key); } catch (e) { } }
 function cacheClear() {
-  try { Object.keys(localStorage).filter(k => k.indexOf(CACHE_PREFIX) === 0).forEach(k => localStorage.removeItem(k)); } catch (e) { }
-  ahead = {};
+  Object.keys(mem).forEach(k => delete mem[k]);
+  if (idb) try { idbStore('readwrite').clear(); } catch (e) { }
+  ahead = {}; prefetchRun++; pendingCase = null; closeAsk();
   for (const k in fetchedAt) delete fetchedAt[k];
 }
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// how many pages are kept in this browser (for the checks)
+async function cacheCount() { if (!idb) return Object.keys(mem).length; return idbReq(idbStore('readonly').count()); }
+// the server's timing note and the signed-in person are not part of the page
+const sameSkip = (k, v) => k === '_ms' || k === 'me' ? undefined : v;
+const same = (a, b) => JSON.stringify(a, sameSkip) === JSON.stringify(b, sameSkip);
 
 // A נועץ page starts loading when the mouse moves over its row, so the click opens it faster
 let ahead = {}; // email -> { at, promise }
@@ -110,26 +136,137 @@ function takeAhead(email) {
   return a && Date.now() - a.at < 30000 ? a : null;
 }
 
-// "רענן": pulls this page's data again from the server (only this page), with when it was last pulled
+// After the list arrives: the first 5 rows as shown, and anyone with a פגישה today or tomorrow, are pulled one after
+// the other (not all at once), so they open already up to date. A תיק pulled in the last 5 minutes is skipped.
+let prefetchRun = 0;
+const PREFETCH_FRESH = 5 * 60000;
+async function prefetchTop(l) {
+  const run = ++prefetchRun;
+  const d = new Date(), t1 = new Date(d.getTime() + 86400000), p = n => String(n).padStart(2, '0');
+  const ymd = x => x.getFullYear() + '-' + p(x.getMonth() + 1) + '-' + p(x.getDate());
+  const soon = (l.clients || []).filter(c => !c.archived && c.next && c.next.date && c.next.date >= ymd(d) && c.next.date <= ymd(t1));
+  const emails = [];
+  listView(l).slice(0, 5).concat(soon).forEach(c => { if (emails.indexOf(c.email) === -1) emails.push(c.email); });
+  for (const email of emails) {
+    if (run !== prefetchRun || !getToken()) return;
+    if (Date.now() - cacheAt('client_' + email) < PREFETCH_FRESH || currentClient === email || ahead[email]) continue;
+    const res = await api('clientGet', { email: email });
+    if (run !== prefetchRun || !res || !res.ok || !getToken()) continue;
+    if (currentClient !== email) cachePut('client_' + email, res); // the one on screen is updated by its own pull
+  }
+}
+
+// The bar at the top of a page: when its data is from, and what is happening now
+//   "מוצגים נתונים מ־10:42 · מעדכן…" while the server answers · "עודכן עכשיו" when something new arrived ·
+//   "לא הצלחתי לעדכן" with "לנסות שוב" · "יש עדכון לתיק" with "להציג" (it arrived while you were typing)
 let pageKey = '', pageRefresh = null; // the page on screen, and how to pull it again
+const pullState = {}; // key -> '' | 'pulling' | 'fresh' | 'fail' | 'pending'
 function whenText(at) {
   if (!at) return '';
-  const d = new Date(at), p = n => String(n).padStart(2, '0');
-  return 'עודכן ' + fmtWhen(d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()));
+  return 'עודכן ' + fmtWhen(ymdhm(at));
 }
+function ymdhm(at) { const d = new Date(at), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+function sinceText(at) { if (!at) return ''; const w = fmtWhen(ymdhm(at)); return 'מוצגים נתונים מ' + (/^היום /.test(w) ? '־' + w.slice(5) : '־' + w); }
 function refreshBar(key, again) {
   pageKey = key; pageRefresh = again;
-  const at = cacheAt(key);
-  return el('div', { class: 'refresh-bar' },
-    el('span', { class: 'when muted small', title: at ? new Date(at).toLocaleString('he-IL') : '' }, whenText(at)),
-    el('button', { type: 'button', class: 'btn secondary small refresh-btn', title: 'משיכת הנתונים של הדף הזה מחדש',
-      onclick: (e) => { if (pageKey === key && pageRefresh) withBusy(e.currentTarget, pageRefresh); } }, 'רענן'));
+  const bar = el('div', { class: 'refresh-bar', 'data-key': key, role: 'status' });
+  paintBar(bar, key);
+  return bar;
+}
+function paintBar(bar, key) {
+  const at = cacheAt(key), st = pullState[key] || '';
+  bar.className = 'refresh-bar' + (st ? ' ' + st : '');
+  const again = (label, cls) => el('button', { type: 'button', class: 'btn secondary small ' + (cls || 'refresh-btn'), title: 'משיכת הנתונים של הדף הזה מחדש',
+    onclick: (e) => { if (pageKey === key && pageRefresh) withBusy(e.currentTarget, pageRefresh); } }, label);
+  const when = (text, cls) => el('span', { class: 'when small' + (cls ? ' ' + cls : ''), title: at ? new Date(at).toLocaleString('he-IL') : '' }, text);
+  if (st === 'pulling') bar.replaceChildren(el('span', { class: 'spin', 'aria-hidden': 'true' }), when(at ? sinceText(at) + ' · מעדכן…' : 'מעדכן…'));
+  else if (st === 'fail') bar.replaceChildren(when('לא הצלחתי לעדכן' + (at ? ' · ' + sinceText(at) : '')), again('לנסות שוב'));
+  else if (st === 'pending') bar.replaceChildren(when('יש עדכון לתיק'), el('button', { type: 'button', class: 'btn primary small show-update', onclick: showPending }, 'להציג'));
+  else if (st === 'fresh') bar.replaceChildren(el('span', { class: 'ok-mark', 'aria-hidden': 'true' }, '✓'), when('עודכן עכשיו'), again('רענן'));
+  else bar.replaceChildren(when(whenText(at), 'muted'), again('רענן'));
+}
+let freshTimer = null;
+function setPull(key, st) {
+  pullState[key] = st;
+  document.querySelectorAll('.refresh-bar').forEach(b => { if (b.dataset.key === key) paintBar(b, key); });
+  if (st === 'fresh') { clearTimeout(freshTimer); freshTimer = setTimeout(() => { if (pullState[key] === 'fresh') setPull(key, ''); }, 5000); }
 }
 // the data came back the same as on screen: just the time changes
-function paintWhen(key) {
-  if (pageKey !== key) return;
-  const at = cacheAt(key);
-  document.querySelectorAll('.refresh-bar .when').forEach(s => { s.textContent = whenText(at); s.title = at ? new Date(at).toLocaleString('he-IL') : ''; });
+function paintWhen(key) { setPull(key, pullState[key] === 'pending' ? 'pending' : ''); }
+
+// New data for the תיק on screen while you are typing (or a window is open): ask before showing it
+let pendingCase = null;
+function closeAsk() { const b = document.getElementById('updateAsk'); if (b) b.remove(); }
+function askUpdate() {
+  if (document.getElementById('updateAsk')) return;
+  const box = el('div', { id: 'updateAsk', class: 'update-ask', role: 'dialog', 'aria-label': 'עדכון לתיק' },
+    el('b', {}, 'הגיע עדכון לתיק'),
+    el('p', { class: 'small' }, 'בשרת יש נתונים חדשים יותר (למשל שאלון שמולא, או שינוי של יועץ/ת אחר/ת). להציג אותם עכשיו? מה שהקלדת יישאר.'),
+    el('div', { class: 'row' },
+      el('button', { type: 'button', class: 'btn primary small', id: 'updateNow', onclick: showPending }, 'להציג עכשיו'),
+      el('button', { type: 'button', class: 'btn secondary small', id: 'updateLater', onclick: closeAsk }, 'אחר כך')));
+  document.body.append(box);
+}
+function showPending() {
+  const r = pendingCase; pendingCase = null; closeAsk();
+  if (!r || currentClient !== r.client.email) return;
+  drawClient(r, true, 'pull');
+  setPull('client_' + r.client.email, 'fresh');
+}
+// is someone in the middle of something on the תיק: typing, or a box changed and not saved, or a window open
+function changedBox(x) {
+  if (x.readOnly || x.disabled || x.type === 'search' || x.type === 'file') return false;
+  if (x.type === 'checkbox' || x.type === 'radio') return x.checked !== x.defaultChecked;
+  if (x.tagName === 'SELECT') { const d = [...x.options].findIndex(o => o.defaultSelected); return x.selectedIndex !== (d === -1 ? 0 : d); }
+  return x.value !== x.defaultValue;
+}
+function caseBusy() {
+  if (document.querySelector('dialog[open]')) return true;
+  const a = document.activeElement;
+  if (a && app.contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit)$/.test(a.type)))) return true;
+  return [...app.querySelectorAll('input, textarea, select')].some(changedBox);
+}
+// a small change saved on this screen goes into the kept copy too (so it is there next time, without loading again)
+function keepCase(email, fn) {
+  const r = caseR && caseR.client && caseR.client.email === email ? caseR : cacheGet('client_' + email);
+  if (!r) return;
+  fn(r);
+  cachePut('client_' + email, r, cacheAt('client_' + email));
+  savedHere(email);
+}
+// after a save on this screen: what the save answered is on screen; a pull that left before it is stale
+let saveSeq = 0;
+function savedHere(email) {
+  saveSeq++;
+  if (pendingCase && pendingCase.client.email === email) { pendingCase = null; closeAsk(); quietPull(email); }
+}
+function quietPull(email) { if (currentClient === email) pullClient(email, viewSeq, caseR, null, true); }
+
+// Redrawing a page in place: the parts that came out the same are left as they are (what is typed there, where you
+// are, what is open); only the parts that changed are swapped. Returns the swapped parts.
+const DEEP = ['case-tab', 'timeline'];
+const bare = n => n.outerHTML.replace(/ style=""/g, ''); // an empty style left by the browser is no change
+function copyOpen(o, n) {
+  const a = (o.matches('details') ? [o] : []).concat([...o.querySelectorAll('details')]);
+  const b = (n.matches('details') ? [n] : []).concat([...n.querySelectorAll('details')]);
+  if (a.length === b.length) a.forEach((d, i) => { b[i].open = d.open; });
+}
+function patchInto(parent, nodes) {
+  const old = [...parent.children];
+  if (old.length !== nodes.length || old.some((o, i) => o.tagName !== nodes[i].tagName)) {
+    old.forEach((o, i) => { if (nodes[i] && o.tagName === nodes[i].tagName) copyOpen(o, nodes[i]); });
+    parent.replaceChildren(...nodes);
+    return nodes;
+  }
+  const changed = [];
+  nodes.forEach((n, i) => {
+    const o = old[i];
+    if (o.className === n.className && DEEP.some(c => o.classList.contains(c))) { changed.push(...patchInto(o, [...n.children])); return; }
+    copyOpen(o, n);
+    if (bare(o) === bare(n)) return;
+    o.replaceWith(n); changed.push(n);
+  });
+  return changed;
 }
 
 let viewSeq = 0; // each screen gets a number; a late answer for an older screen is ignored
@@ -149,7 +286,7 @@ function el(tag, props, ...children) {
   }
   return node;
 }
-function render(...nodes) { app.replaceChildren(...nodes.filter(n => n !== null && n !== undefined)); }
+function render(...nodes) { closeAsk(); delete app.dataset.client; app.replaceChildren(...nodes.filter(n => n !== null && n !== undefined)); }
 function msgBox(text, kind) { return el('div', { class: 'msg ' + (kind || 'error'), role: 'alert' }, text); }
 function field(label, input) { return el('label', { class: 'field' }, el('span', {}, label), input); }
 
@@ -264,16 +401,20 @@ let clientSearch = '';
 async function showClients() {
   if (!(await ensureMe())) return;
   const seq = ++viewSeq;
+  currentClient = null; pendingCase = null;
+  await cacheReady;
   const cached = cacheGet('list');
   if (cached) drawClients(cached); else loading('clients');
   await pullClients(seq, cached);
 }
 async function pullClients(seq, shown, keep) {
+  if (shown) setPull('list', 'pulling');
   const r = await api('clientList');
-  if (seq !== viewSeq) return;
-  if (!r.ok) { if (!r.handled && !shown) render(menu('clients'), msgBox(r.message)); else if (shown && !r.handled) app.prepend(msgBox(r.message)); return; }
+  if (seq !== viewSeq) { if (r.ok) { cachePut('list', r); prefetchTop(r); } return; }
+  if (!r.ok) { if (!r.handled && !shown) render(menu('clients'), msgBox(r.message)); else if (shown && !r.handled) setPull('list', 'fail'); return; }
   cachePut('list', r);
-  if (!shown || !same(shown, r)) drawClients(r, !!shown || !!keep); else paintWhen('list');
+  if (!shown || !same(shown, r)) { drawClients(r, !!shown || !!keep); setPull('list', shown ? 'fresh' : ''); } else paintWhen('list');
+  prefetchTop(r);
 }
 
 // "פתיחת תיק": a יועץ opens a תיק for someone who will sign up later with this email
@@ -342,6 +483,15 @@ function fmtWhen(s) {
   return (+m[3]) + '.' + (+m[2]) + '.' + m[1];
 }
 
+// the rows of the list as they are shown: the search, "רק שלי", the archive and the sort
+function listView(r) {
+  const q = clientSearch.trim().toLowerCase();
+  const list = (r.clients || []).filter(c => (showArchive ? !!c.archived : !c.archived) && (!onlyMine || c.staff === r.myEmail) && (!q || (c.name || '').toLowerCase().includes(q) || c.email.includes(q) ||
+    (c.staffName || '').toLowerCase().includes(q) || (c.tags || []).some(x => x.toLowerCase().includes(q))));
+  const key = c => clientSort === 'seen' ? (c.lastSeen || '') : clientSort === 'created' ? (c.created || '') : '';
+  return list.slice().sort((a, b) => clientSort === 'name' ? (a.name || '').localeCompare(b.name || '', 'he') :
+    key(b) > key(a) ? 1 : key(b) < key(a) ? -1 : 0);
+}
 function drawClients(r, refresh) {
   const hadFocus = refresh && document.activeElement && document.activeElement.classList.contains('search');
   const y = window.scrollY;
@@ -370,13 +520,8 @@ function drawClients(r, refresh) {
     : c.next.date ? fmtDay(c.next.date) + (c.next.time ? ' בשעה ' + c.next.time : '') : 'פגישה · טרם נקבע';
 
   function draw() {
-    const q = search.value.trim().toLowerCase();
     clientSearch = search.value; onlyMine = mine.checked; clientSort = sort.value; showArchive = arch.checked;
-    let list = r.clients.filter(c => (showArchive ? !!c.archived : !c.archived) && (!onlyMine || c.staff === r.myEmail) && (!q || (c.name || '').toLowerCase().includes(q) || c.email.includes(q) ||
-      (c.staffName || '').toLowerCase().includes(q) || (c.tags || []).some(x => x.toLowerCase().includes(q))));
-    const key = c => clientSort === 'seen' ? (c.lastSeen || '') : clientSort === 'created' ? (c.created || '') : '';
-    list = list.slice().sort((a, b) => clientSort === 'name' ? (a.name || '').localeCompare(b.name || '', 'he') :
-      key(b) > key(a) ? 1 : key(b) < key(a) ? -1 : 0);
+    const list = listView(r);
     const base = r.clients.filter(c => (showArchive ? !!c.archived : !c.archived) && (!onlyMine || c.staff === r.myEmail)).length;
     count.textContent = (list.length === base ? base : list.length + ' מתוך ' + base) + ' נועצים' + (onlyMine ? ' שלי' : '') + (showArchive ? ' בארכיון' : '') +
       (r.admin ? '' : ' · מוצגים הנועצים שלך ואלה שלא שויכו');
@@ -417,21 +562,30 @@ async function showClient(email) {
   if (!(await ensureMe())) return;
   const seq = ++viewSeq;
   const key = 'client_' + email;
+  pendingCase = null; caseR = null;
+  await cacheReady;
   const cached = cacheGet(key);
-  if (cached) drawClient(cached); else { if (!previewClient(email)) loading('clients'); window.scrollTo(0, 0); }
+  if (cached) drawClient(cached); else { currentClient = email; if (!previewClient(email)) loading('clients'); window.scrollTo(0, 0); }
   await pullClient(email, seq, cached, takeAhead(email));
 }
 async function pullClient(email, seq, shown, early, keep) {
   const key = 'client_' + email;
+  if (shown) setPull(key, 'pulling');
+  const saves = saveSeq;
   const r = await (early ? early.promise : api('clientGet', { email: email }));
   if (seq !== viewSeq) return;
   if (!r.ok) {
     if (r.handled) return;
-    if (!shown) render(menu('clients'), backLink(), msgBox(r.message)); else app.prepend(msgBox(r.message));
+    if (!shown) render(menu('clients'), backLink(), msgBox(r.message)); else setPull(key, 'fail');
     return;
   }
+  // something was saved on this screen while the server was answering: that answer may be from before the save
+  if (saves !== saveSeq) return pullClient(email, seq, caseR, null, true);
+  const onScreen = caseR && caseR.client && caseR.client.email === email ? caseR : shown;
   cachePut(key, r, early ? early.at : 0);
-  if (!shown || !same(shown, r)) drawClient(r, !!shown || !!keep); else paintWhen(key);
+  if (onScreen && same(onScreen, r)) paintWhen(key);
+  else if (onScreen && caseBusy()) { pendingCase = r; setPull(key, 'pending'); askUpdate(); }
+  else { drawClient(r, !!onScreen || !!keep, onScreen ? 'pull' : ''); setPull(key, onScreen ? 'fresh' : ''); }
   if (!cacheGet('list') && !listAhead) listAhead = api('clientList').then(l => { if (l && l.ok) cachePut('list', l); listAhead = null; });
 }
 let listAhead = null;
@@ -466,8 +620,14 @@ let currentClient = null; // the email of the תיק on screen (refreshed when y
 let qsOpen = false;
 
 
-function drawClient(r, refresh) {
+// the תיק on screen (one object: a newer copy is poured into it, so what the buttons hold stays current)
+let caseR = null;
+function drawClient(r, refresh, why) {
   const y = window.scrollY;
+  if (refresh && caseR && caseR !== r && caseR.client && r.client && caseR.client.email === r.client.email) {
+    Object.keys(caseR).forEach(k => { delete caseR[k]; }); Object.assign(caseR, r); r = caseR;
+  }
+  caseR = r;
   const c = r.client;
   const ci = r.caseInfo || {};
   const L = r.lists || { groups: [], kinds: [], noteKinds: [], meets: [] };
@@ -488,10 +648,12 @@ function drawClient(r, refresh) {
   // the bottom of the תיק: the timeline of interactions (פגישות and עיבודים), from the opening on
   const tabBox = el('div', { class: 'case-tab timeline-box' }, timelineSection(r));
 
-  // text being written survives a refresh of the page (the note, and the meeting fields)
+  // what is being typed survives a redraw (the meeting fields, the note to Claude, the details form…)
   const drafts = {};
-  if (refresh) document.querySelectorAll('textarea[data-keep]').forEach(x => { if (x.value !== x.defaultValue) drafts[x.id] = { value: x.value, was: x.defaultValue }; });
-  render(menu('clients'), el('div', { class: 'top-row' }, backLink(),
+  if (refresh) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(x => {
+    if (changedBox(x)) drafts[x.id] = { value: x.value, checked: x.checked, was: x.defaultValue };
+  });
+  const parts = [menu('clients'), el('div', { class: 'top-row' }, backLink(),
       refreshBar('client_' + c.email, () => pullClient(c.email, viewSeq, cacheGet('client_' + c.email), null, true))),
     el('h1', {}, c.name || c.email),
     el('p', { class: 'sub case-facts' }, facts.join(' · ') || 'עוד אין פרטים'),
@@ -517,14 +679,22 @@ function drawClient(r, refresh) {
       cvRow(r.cv, c)),
     el('h2', { class: 'section-title tl-title' }, 'אינטראקציות'),
     tabBox,
-    manageCase(r));
+    manageCase(r)].map(n => n || el('span', { class: 'slot', hidden: true })); // a part not shown keeps its place
+  // the same תיק again: only the parts that changed are swapped (no jump, nothing open closes)
+  const inPlace = refresh && app.querySelector('.case-tab') && app.dataset.client === c.email;
+  let changed = null;
+  if (inPlace) changed = patchInto(app, parts);
+  else { render(...parts); app.dataset.client = c.email; }
   Object.keys(drafts).forEach(id => {
     const x = document.getElementById(id);
     if (!x) return;
     if ((id === 'm_prep' || id === 'm_insight') && x.defaultValue !== drafts[id].was) return; // Claude wrote a new version: it wins
-    x.value = drafts[id].value;
+    if (x.type === 'checkbox' || x.type === 'radio') x.checked = drafts[id].checked; else x.value = drafts[id].value;
   });
-  window.scrollTo(0, refresh ? y : 0);
+  // what came in from the server is marked for a moment
+  if (why === 'pull' && changed) changed.forEach(n => { if (!n.matches('nav, .top-row, .slot')) { n.classList.add('just-updated'); setTimeout(() => n.classList.remove('just-updated'), 2500); } });
+  if (!inPlace) window.scrollTo(0, refresh ? y : 0);
+  if (pendingCase && pendingCase.client.email === c.email) askUpdate();
 }
 
 function qsSection(summary, ...body) {
@@ -607,6 +777,7 @@ function afterMeetSave(r, res) {
   r.caseInfo = Object.assign({}, r.caseInfo, res.caseInfo); r.entries = res.entries;
   (res.opened || []).forEach(id => r.questionnaires.forEach(q => { if (q.id === id) q.open = true; }));
   cachePut('client_' + r.client.email, r);
+  savedHere(r.client.email);
   drawClient(r, true);
 }
 
@@ -745,7 +916,7 @@ function interactionCard(r, ms, n) {
       const mb = el('button', { type: 'button', class: 'btn secondary small', onclick: async () => {
         const res = await withBusy(mb, () => api('mailOpened', { email: c.email }));
         if (!res.ok) { if (!res.handled) msg.replaceChildren(msgBox(res.message || 'המייל לא נשלח')); return; }
-        meetFlash = null; cacheDrop('client_' + c.email);
+        meetFlash = null; quietPull(c.email);
         msg.replaceChildren(el('span', { class: 'saved-note' }, 'נשלח מייל על: ' + res.sentAbout.join(', ')));
       } }, 'שליחת מייל לנועץ על השאלונים והמשימות');
       msg.append(' ', mb);
@@ -1037,27 +1208,42 @@ function deleteDialog(r) {
 }
 
 // ---------- emails to the נועץ ----------
+let mailFlash = null; // { email, text, at }: what was just sent (stays through the redraw that follows)
 function openMailRow(r) {
   const c = r.client, E = r.entries || {};
   const openUnsent = r.questionnaires.filter(q => q.open && !q.sentAt).length;
-  const note = el('span', { class: 'muted small', 'aria-live': 'polite' }, E.openMail ? 'מייל אחרון על שאלונים פתוחים: ' + E.openMail : '');
+  const flash = mailFlash && mailFlash.email === c.email && Date.now() - mailFlash.at < 60000 ? mailFlash.text : '';
+  const note = el('span', { class: 'muted small', 'aria-live': 'polite' }, flash || (E.openMail ? 'מייל אחרון על שאלונים פתוחים: ' + E.openMail : ''));
   const btn = el('button', { type: 'button', class: 'btn secondary small open-mail', disabled: !openUnsent, onclick: async () => {
     const res = await withBusy(btn, () => api('mailOpened', { email: c.email }));
     if (!res.ok) { if (!res.handled) note.textContent = res.message || 'המייל לא נשלח'; return; }
     note.textContent = 'נשלח מייל על: ' + res.sentAbout.join(', ');
-    cacheDrop('client_' + c.email);
+    mailFlash = { email: c.email, text: note.textContent, at: Date.now() };
+    quietPull(c.email);
   } }, 'שליחת מייל לנועץ על השאלונים הפתוחים' + (openUnsent ? ' (' + openUnsent + ')' : ''));
   return el('div', { class: 'row open-mail-row' }, btn, note);
 }
 
+// Saving the details: the answer (the saved תיק details) is put on screen in place; the page is not loaded again
+let caseFlash = null; // { email, text }: "נשמר" under the details form after its save
 async function saveCase(email, fields, msgEl) {
   const res = await api('caseSave', { email: email, fields: fields });
   if (!res.ok) { if (!res.handled && msgEl) msgEl.replaceChildren(msgBox(res.message)); return false; }
-  cacheDrop('client_' + email);
+  const name = fields.name !== undefined ? String(fields.name).trim().replace(/\s+/g, ' ') : undefined;
   if ('archived' in fields) listPatch(email, { archived: fields.archived ? today() : '' });
   if ('staff' in fields) listPatch(email, fields.staff === (me && me.email) ? { staff: fields.staff, staffName: me.name } : { staff: fields.staff });
   if ('group' in fields) listPatch(email, { group: fields.group });
-  showClient(email);
+  if (name) listPatch(email, { name: name });
+  if (fields.age !== undefined) listPatch(email, { age: String(fields.age).trim() });
+  const r = caseR && caseR.client && caseR.client.email === email ? caseR : null;
+  if (!r || !res.caseInfo) { cacheDrop('client_' + email); if (currentClient === email) showClient(email); return true; }
+  r.caseInfo = Object.assign({}, r.caseInfo, res.caseInfo);
+  if (name) r.client.name = name;
+  if (fields.gender === 'f' || fields.gender === 'm') r.client.gender = fields.gender;
+  cachePut('client_' + email, r);
+  savedHere(email);
+  if (msgEl) caseFlash = { email: email, text: 'הפרטים נשמרו' };
+  if (currentClient === email) drawClient(r, true);
   return true;
 }
 
@@ -1077,6 +1263,7 @@ function caseDetails(r, L) {
     staff: !(me && me.admin) ? null : select('c_staff', [['', 'לא נבחר/ה']].concat(ci.staff && !(L.staff || []).some(s => s[0] === ci.staff) ? [[ci.staff, ci.staff]] : []).concat(L.staff || []), ci.staff || '')
   };
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירת הפרטים');
+  if (caseFlash && caseFlash.email === c.email) { msg.append(el('span', { class: 'saved-note' }, caseFlash.text)); caseFlash = null; }
   return el('details', { class: 'case-edit' }, el('summary', {}, 'עריכת פרטים'),
     el('form', { class: 'card', onsubmit: async (e) => {
       e.preventDefault(); msg.replaceChildren();
@@ -1121,7 +1308,7 @@ function questionnaireRow(q, client) {
           const res = await withBusy(rb, () => api('remind', { email: client.email, id: q.id }));
           if (!res.ok) { if (!res.handled) saved.textContent = res.message || 'התזכורת לא נשלחה'; return; }
           currentReminders = res.entries.reminders || currentReminders;
-          cacheDrop('client_' + client.email);
+          keepCase(client.email, r => { r.entries = Object.assign({}, r.entries, { reminders: currentReminders }); });
           saved.textContent = 'התזכורת נשלחה'; paint();
         } }, 'תזכורת');
         parts.push(rb);
@@ -1137,8 +1324,9 @@ function questionnaireRow(q, client) {
     const r = await api('setAccess', { email: client.email, id: q.id, open: want });
     input.disabled = false;
     if (!r.ok) { input.checked = !want; saved.textContent = r.handled ? '' : (r.message || 'השמירה לא הצליחה'); return; }
-    cacheDrop('client_' + client.email);
+    input.defaultChecked = want; // saved: not a change waiting to be saved
     q.open = want; paint();
+    keepCase(client.email, x => { (x.questionnaires || []).forEach(y => { if (y.id === q.id) y.open = want; }); });
     saved.textContent = want ? 'נפתח לנועץ' : 'נסגר לנועץ';
     setTimeout(() => { saved.textContent = ''; }, 2200);
   });
@@ -1437,7 +1625,7 @@ async function showSettings() {
 if (CFL_HR_API_URL.indexOf('PASTE_') === 0) {
   render(msgBox('ממשק היועצים עדיין לא חובר לשרת: יש להדביק את כתובת ה-Web App בקובץ CFL_HR_config.js.'));
 } else if (getToken()) {
-  showHome();
+  cacheReady.then(showHome);
 } else {
   showLogin();
 }
