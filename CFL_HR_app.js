@@ -769,7 +769,8 @@ function openingItem(r, ms) {
         intake.sentAt ? el('span', { class: 'muted small' }, ' · ' + fmtWhen(intake.sentAt)) : el('span', { class: 'badge wait' }, 'טרם מילא/ה'),
         intake.sentAt ? el('button', { type: 'button', class: 'link-btn small', onclick: () => openAnswers(intake, r.client) }, 'צפייה בתשובות') : null) : null,
       el('li', { class: r.cv ? 'done' : '' }, el('span', { class: 'dot' }), el('span', { class: 'qt' }, 'קורות חיים'),
-        r.cv ? el('span', { class: 'muted small' }, ' · ' + r.cv.name + ' · ' + fmtWhen(r.cv.uploadedAt)) : el('span', { class: 'badge wait' }, 'לא הועלו'))),
+        r.cv ? el('span', { class: 'muted small' }, ' · ' + r.cv.name + ' · ' + fmtWhen(r.cv.uploadedAt)) : el('span', { class: 'badge wait' }, 'לא הועלו'),
+        r.cv ? el('div', {}, cvReadNote(r.cv, r.client)) : null)),
     first ? el('p', { class: 'hint small' }, 'על בסיס אלה Claude כותב את ההכנה לפגישה הראשונה (בכרטיס של פגישה 1).') : null);
 }
 
@@ -1340,6 +1341,29 @@ function questionnaireRow(q, client) {
   return row;
 }
 
+// Whether Claude can read the CV: it is read once (Google's converter, or Claude for a scanned PDF) and its text kept.
+// A CV not read yet is read in the background when the תיק opens; a failure says why, with "לנסות שוב".
+let cvReading = {}; // email -> true while the server reads it
+function readCv(email) {
+  if (cvReading[email]) return;
+  cvReading[email] = true;
+  const done = (read) => {
+    delete cvReading[email];
+    keepCase(email, x => { if (x.cv) x.cv.read = read; });
+    if (currentClient === email && caseR) drawClient(caseR, true);
+  };
+  api('cvRead', { email: email }).then(res => done(res && res.ok ? res.read : { error: (res && !res.handled && res.message) || 'לא הצלחתי לקרוא את הקובץ' }));
+}
+function cvReadNote(cv, client) {
+  if (!cv) return null;
+  const r = cv.read;
+  if (!r && !cvReading[client.email]) setTimeout(() => readCv(client.email), 0);
+  if (!r || cvReading[client.email]) return el('span', { class: 'cv-read muted small' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }), 'קורא את קורות החיים בשביל Claude…');
+  if (r.read) return el('span', { class: 'cv-read ok small', title: r.at ? 'נקרא ' + r.at + (r.how === 'Claude' ? ' (קובץ סרוק: Claude קרא אותו)' : '') : '' }, '✓ Claude יכול לקרוא את קורות החיים');
+  return el('span', { class: 'cv-read bad small' }, 'Claude לא יכול לקרוא את קורות החיים: ' + (r.error || 'לא נקרא') + ' ',
+    el('button', { type: 'button', class: 'link-btn small cv-read-again', onclick: () => { readCv(client.email); if (caseR) drawClient(caseR, true); } }, 'לנסות שוב'));
+}
+
 // קורות חיים: view (PDF opens in a popup) / download, fetched from the server for this signed-in יועץ
 function cvRow(cv, client) {
   const note = el('span', { class: 'saved-note', 'aria-live': 'polite' });
@@ -1366,7 +1390,7 @@ function cvRow(cv, client) {
     setTimeout(() => URL.revokeObjectURL(f.url), 4000);
   } }, 'הורדה');
   head.append(el('span', { class: 'qside' }, note, el('span', { class: 'badge sent' }, el('bdi', {}, cv.name), ' · ' + cv.uploadedAt), viewBtn, dlBtn));
-  return el('div', { class: 'cv-row' }, head);
+  return el('div', { class: 'cv-row' }, head, el('div', { class: 'cv-read-row' }, cvReadNote(cv, client)));
 }
 
 function sentLabel(q) {

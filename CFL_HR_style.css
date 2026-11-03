@@ -434,3 +434,8 @@ textarea.claude-writing { background: #f7f8f2; }
 .prep-doc .doc-check{background:#F4F3EF;border:1px solid #E2DFD5;border-radius:6px;padding:8px 12px;margin-top:16px;color:#6E6A5F;font-size:14px}
 .prep-doc .doc-check .doc-h{color:#6E6A5F;border:0;margin-top:0}
 textarea.gaps-box{border-right:3px solid #B08A3E}
+
+/* whether Claude can read the CV */
+.cv-read-row { padding: 4px 16px 10px; }
+.cv-read.ok { color: var(--olive); }
+.cv-read.bad { color: #8A3B2C; }
