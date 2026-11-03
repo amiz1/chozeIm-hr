@@ -1471,7 +1471,7 @@ function clientFrame(q, client, mode) {
   const onMsg = (e) => {
     if (e.source !== frame.contentWindow || e.origin !== origin || !e.data || e.data.type !== 'cfl-view-ready') return;
     frame.contentWindow.postMessage({ type: 'cfl-view', state: q.state, submittedAt: q.sentAt, updatedAt: q.updatedAt,
-      name: client.name, gender: client.gender, response: q.response || '', responseAt: q.responseAt || '' }, origin);
+      name: client.name, gender: client.gender, response: q.response || '', responseAt: q.responseAt || '', summary: q.summary || '' }, origin);
   };
   window.addEventListener('message', onMsg);
   // stop listening once the popup is closed
