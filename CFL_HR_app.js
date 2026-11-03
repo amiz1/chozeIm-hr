@@ -778,6 +778,9 @@ function afterMeetSave(r, res) {
   r.caseInfo = Object.assign({}, r.caseInfo, res.caseInfo); r.entries = res.entries;
   (res.opened || []).forEach(id => r.questionnaires.forEach(q => { if (q.id === id) q.open = true; }));
   cachePut('client_' + r.client.email, r);
+  // the list shows the next interaction: kept up to date at once (not only after the list is pulled again)
+  const ms = (r.caseInfo.meetings || []), i = ms.findIndex(m => !m.done);
+  listPatch(r.client.email, { next: i === -1 ? null : { n: i + 1, kind: ms[i].kind, date: ms[i].date || '', time: ms[i].time || '' } });
   savedHere(r.client.email);
   drawClient(r, true);
 }
