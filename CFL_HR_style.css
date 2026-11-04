@@ -444,3 +444,7 @@ textarea.gaps-box{border-right:3px solid #B08A3E}
 .prep-doc .just-edited { background: #F3EEDF; box-shadow: 0 0 0 4px #F3EEDF; transition: background 1.5s, box-shadow 1.5s; }
 .prep-continue { margin-inline-end: auto; }
 .confirm-again { background: var(--tint); border-right: 3px solid var(--gold); color: var(--ink); }
+/* the locked email in "עריכת פרטים" (changed in "ניהול התיק") */
+.locked-row { display: flex; gap: 8px; align-items: center; }
+.locked-row input.locked { flex: 1; min-width: 0; background: #F4F3EE; color: var(--mute); border-style: dashed; cursor: default; }
+.locked-row .btn { white-space: nowrap; }

@@ -1259,6 +1259,17 @@ function deleteRow(r) {
     } }, 'מחיקה מלאה…'));
 }
 
+// "עריכה בניהול תיק" (next to the locked email in "עריכת פרטים"): opens "ניהול התיק" and brings "שינוי אימייל" into view
+function goEmailRow() {
+  const box = app.querySelector('.case-manage'), inp = document.getElementById('newEmail');
+  if (!box || !inp) return;
+  box.open = true;
+  const row = inp.closest('.manage-row');
+  row.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+  row.classList.remove('just-updated'); void row.offsetWidth; row.classList.add('just-updated');
+  inp.focus({ preventScroll: true });
+}
+
 // "שינוי אימייל" (admins; others see it and get a message): the whole תיק moves to another address (a temporary one from an import, or another Google account)
 function emailRow(r) {
   const c = r.client;
@@ -1387,6 +1398,11 @@ function caseDetails(r, L) {
     consent: el('input', { type: 'checkbox', id: 'c_consent', checked: !!ci.consent }),
     staff: !(me && me.admin) ? null : select('c_staff', [['', 'לא נבחר/ה']].concat(ci.staff && !(L.staff || []).some(s => s[0] === ci.staff) ? [[ci.staff, ci.staff]] : []).concat(L.staff || []), ci.staff || '')
   };
+  // the email: shown here, locked; it is changed in "ניהול התיק" (the whole תיק moves to the new address)
+  const mail = el('div', { class: 'field' }, el('span', {}, 'אימייל'),
+    el('div', { class: 'locked-row' },
+      el('input', { type: 'email', id: 'c_email', value: c.email, readonly: true, dir: 'ltr', class: 'locked', 'aria-label': 'אימייל (נעול)', title: 'האימייל משתנה בניהול התיק' }),
+      el('button', { type: 'button', class: 'btn secondary small', id: 'c_emailGo', onclick: goEmailRow }, 'עריכה בניהול תיק')));
   const btn = el('button', { type: 'submit', class: 'btn primary' }, 'שמירת הפרטים');
   if (caseFlash && caseFlash.email === c.email) { msg.append(el('span', { class: 'saved-note' }, caseFlash.text)); caseFlash = null; }
   return el('details', { class: 'case-edit' }, el('summary', {}, 'עריכת פרטים'),
@@ -1396,7 +1412,7 @@ function caseDetails(r, L) {
         tags: f.tags.value, age: f.age.value, years: f.years.value, kind: f.kind.value, group: f.group.value, note: f.note.value,
         consent: f.consent.checked, staff: f.staff ? f.staff.value : undefined }, msg));
     } },
-      el('div', { class: 'grid2' }, field('שם', f.name), f.staff ? field('יועץ/ת מלווה', f.staff) : null, field('נועצת או נועץ', f.gender), field('טלפון', f.phone), field('מי זה/זו', f.kind),
+      el('div', { class: 'grid2' }, field('שם', f.name), mail, f.staff ? field('יועץ/ת מלווה', f.staff) : null, field('נועצת או נועץ', f.gender), field('טלפון', f.phone), field('מי זה/זו', f.kind),
         field('קבוצה', f.group), field('תחום / פקולטה', f.fac), field('תגיות (מפרידים בפסיק)', f.tags),
         el('div', { class: 'grid2' }, field('גיל', f.age), field('שנות ניסיון', f.years))),
       field('הערה כללית', f.note),
