@@ -852,7 +852,7 @@ function interactionCard(r, ms, n) {
     const v = note.value.trim(); if (!v) { cMsg.replaceChildren(msgBox('כתבו קודם מה לשנות.')); return; }
     claudeWrite(r, n, field, v, cMsg, noteBtn);
   } }, 'עדכון הטקסט לפי ההערה') : null;
-  const stopBtn = live ? el('button', { type: 'button', class: 'link-btn small prep-stop', onclick: () => { if (claudeRun) claudeRun.stop = true; } }, 'עצירה') : null;
+  const stopBtn = live ? el('button', { type: 'button', class: 'link-btn small prep-stop', onclick: () => { if (claudeRun) { claudeRun.stop = true; if (claudeRun.abort) claudeRun.abort.abort(); } } }, 'עצירה') : null;
   // the prep is a document: shown as a page (not edited here; corrections go through the note), and downloadable as Word
   const wordBtn = meet && cT && !live ? el('button', { type: 'button', class: 'btn secondary small prep-word', onclick: (e) =>
     withBusy(e.currentTarget, () => downloadDocx(cT.text, (c.name || 'נועץ').trim() + ' – הכנה לפגישה ' + n + '.docx', cMsg)) }, 'הורדה כ-Word') : null;
@@ -864,7 +864,7 @@ function interactionCard(r, ms, n) {
       cT && !live ? el('span', { class: 'muted small by' }, ' · ' + (cT.byName || '') + ', ' + fmtWhen(cT.at)) : null, wordBtn ? ' ' : null, wordBtn),
     live ? el('p', { class: 'claude-live small' }, el('span', { class: 'live-dot', 'aria-hidden': 'true' }),
       live.starting ? 'מכין את התיק בשביל Claude… ' : live.phase === 'review' ? 'הטיוטה נשמרה. Claude בודק אותה מול החומר… ' : live.rewrite ? 'Claude מעדכן לפי ההערה… ' : live.cont ? 'Claude ממשיך מהמקום שנעצר… ' : 'Claude כותב… ',
-      live.phase === 'review' ? (live.rpart ? '(בדיקה, חלק ' + live.rpart + ')' : '') : live.part ? '(חלק ' + live.part + ')' : (meet ? 'זה לוקח כמה דקות.' : 'זה לוקח בערך דקה או שתיים.'), ' ', live.starting ? null : stopBtn) : null,
+      live.phase === 'review' ? (live.rpart ? '(בדיקה, חלק ' + live.rpart + ')' : '') : live.stream && !live.starting && !live.rewrite ? claudeProgress(live) : live.part ? '(חלק ' + live.part + ')' : (meet ? 'זה לוקח כמה דקות.' : 'זה לוקח בערך דקה או שתיים.'), ' ', live.starting ? null : stopBtn) : null,
     textView,
     m.done ? null : cMsg,
     m.done ? el('p', { class: 'hint claude-closed' }, cT ? 'האינטראקציה התקיימה, ולכן Claude כבר לא כותב אליה. זו הגרסה האחרונה.' : 'לא נכתב טקסט עם Claude באינטראקציה הזו.')
@@ -1098,7 +1098,7 @@ async function downloadDocx(text, filename, msg) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
 
-// ---------- Claude, through the server (the key is there): the text is written in parts, each under a minute ----------
+// ---------- Claude, through the server (the key is there): streamed from Firebase, or (without it) in parts, each under a minute ----------
 let claudeRun = null;   // { email, n, field, text, part, rewrite, stop }: the text being written now
 let claudeFlash = null; // { email, n, text, error }: after it finished (or stopped)
 async function claudeWrite(r, n, field, comment, msg, btn, opts) {
@@ -1126,25 +1126,27 @@ async function claudeWrite(r, n, field, comment, msg, btn, opts) {
     return;
   }
   claudeRun.starting = false;
+  claudeRun.stream = claudeStreams();
   redraw();
   let res = null;
-  for (let tries = 0; ; ) {
-    if (claudeRun.stop) { claudeFlash = { email: c.email, n: n, text: claudeRun.phase === 'review' ? 'הבדיקה נעצרה. הטיוטה נשמרה.' : 'נעצר. מה שנכתב עד העצירה לא נשמר; הטקסט הקודם נשאר.', error: claudeRun.phase !== 'review' }; break; }
-    res = await api('claudeStep', { job: start.job });
+  for await (const step of claudeSteps(start.job, claudeRun)) {
+    if (claudeRun.stop) break;
+    res = step;
     if (!res.ok) {
       if (res.handled) { claudeRun = null; return; }
-      if (/עוד נכתב/.test(res.message || '') && tries++ < 20) { await new Promise(x => setTimeout(x, 3000)); continue; }
       claudeFlash = { email: c.email, n: n, text: res.message || 'Claude לא הצליח לכתוב. אפשר לנסות שוב.', error: true }; break;
     }
-    claudeRun.text = res.text; claudeRun.part = res.part || claudeRun.part + 1;
+    claudeRun.text = res.text;
+    if (res.live) claudeRun.words = (res.text.match(/\S+/g) || []).length; else claudeRun.part = res.part || claudeRun.part + 1;
     if (res.phase === 'review' && claudeRun.phase !== 'review') {
       claudeRun.phase = 'review'; if (res.entries) r.entries = res.entries; cachePut('client_' + c.email, r); redraw();
     }
     if (res.rpart) { claudeRun.rpart = res.rpart; const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(בדיקה, חלק ' + res.rpart + ')'; }
     const box = document.getElementById('m_' + field);
-    if (box && currentClient === c.email && meetSel[c.email] === n && claudeRun.phase !== 'review') { if (box.tagName === 'TEXTAREA') { box.value = res.text; box.scrollTop = box.scrollHeight; } else box.replaceWith(docView(res.text, 'claude-writing', box.id)); const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(חלק ' + claudeRun.part + ')'; }
+    if (box && currentClient === c.email && meetSel[c.email] === n && claudeRun.phase !== 'review') { if (box.tagName === 'TEXTAREA') { box.value = res.text; box.scrollTop = box.scrollHeight; } else box.replaceWith(docView(res.text, 'claude-writing', box.id)); const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = claudeProgress(claudeRun); }
     if (res.done) break;
   }
+  if (claudeRun.stop) { res = null; claudeFlash = { email: c.email, n: n, text: claudeRun.phase === 'review' ? 'הבדיקה נעצרה. הטיוטה נשמרה.' : 'נעצר. מה שנכתב עד העצירה לא נשמר; הטקסט הקודם נשאר.', error: claudeRun.phase !== 'review' }; }
   if (res && res.ok && res.done) {
     if (res.entries) r.entries = res.entries;
     cachePut('client_' + c.email, r);
@@ -1165,6 +1167,62 @@ async function claudeWrite(r, n, field, comment, msg, btn, opts) {
       if (changed.some(c => c && t.indexOf(c.replace(/\s+/g, ' ').slice(0, 30)) !== -1)) { x.classList.add('just-edited'); setTimeout(() => x.classList.remove('just-edited'), 6000); }
     });
   }
+}
+
+// With Firebase (CFL_HR_CLAUDE_URL in CFL_HR_config.js): one long request, and the text streams in as Claude writes it.
+// Without it: the parts one by one, each under Google's minute. Both give the same answers (the server's), one by one.
+function claudeStreams() { return typeof CFL_HR_CLAUDE_URL === 'string' && /^https?:\/\//.test(CFL_HR_CLAUDE_URL); }
+function claudeProgress(run) {
+  return run.stream ? (run.words ? '(' + run.words + ' מילים)' : '(חושב על כל התיק לפני שהוא כותב)') : '(חלק ' + run.part + ')';
+}
+async function* claudeSteps(job, run) {
+  if (!claudeStreams()) {
+    for (let tries = 0; ; ) {
+      if (run.stop) return;
+      const res = await api('claudeStep', { job: job });
+      if (!res.ok && !res.handled && /עוד נכתב/.test(res.message || '') && tries++ < 20) { await new Promise(x => setTimeout(x, 3000)); continue; }
+      yield res;
+      if (!res.ok || res.done) return;
+    }
+  }
+  run.abort = new AbortController();
+  let resp;
+  try {
+    resp = await fetch(CFL_HR_CLAUDE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: getToken(), job: job }), signal: run.abort.signal });
+  } catch (e) {
+    if (run.stop) return;
+    yield { ok: false, message: 'אין חיבור ל-Claude כרגע. בדקו את החיבור לאינטרנט ונסו שוב.' }; return;
+  }
+  if (!resp.ok || !resp.body) {
+    yield { ok: false, message: resp.status === 429 ? 'כמה טקסטים נכתבים עכשיו בבת אחת. אפשר לנסות שוב בעוד דקה.' : 'Claude לא הצליח להתחיל (' + resp.status + '). אפשר לנסות שוב.' }; return;
+  }
+  const reader = resp.body.getReader(), dec = new TextDecoder();
+  let buf = '', text = '', shown = 0, fresh = false;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      for (let i; (i = buf.indexOf('\n')) !== -1; ) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        let m; try { m = JSON.parse(line); } catch (e) { continue; }
+        if (m.t === 'phase') { if (m.phase === 'write') { text = m.prefix || ''; fresh = !!text; } }
+        else if (m.t === 'text') { text += m.text; fresh = true; }
+        else if (m.t === 'step') yield m.res;
+        else if (m.t === 'done') { yield m.res; return; }
+        else if (m.t === 'error') {
+          if (m.auth === false) { cacheClear(); setToken(null); showLogin(m.message); yield { ok: false, handled: true }; return; }
+          yield { ok: false, message: m.message }; return;
+        }
+      }
+      // the screen follows the text twice a second (not on every word)
+      if (fresh && Date.now() - shown > 500) { fresh = false; shown = Date.now(); yield { ok: true, done: false, live: true, text: text }; }
+    }
+  } catch (e) { if (run.stop) return; }
+  finally { reader.cancel().catch(() => { }); }
+  if (run.stop) return;
+  yield { ok: false, message: 'החיבור ל-Claude נקטע לפני שהטקסט נשמר. אפשר לנסות שוב.' };
 }
 
 // ---------- managing the תיק: archive, and (admins) deleting everything ----------
