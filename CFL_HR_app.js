@@ -839,7 +839,7 @@ function interactionCard(r, ms, n) {
   const cBtn = el('button', { type: 'button', class: 'btn secondary prep-claude', disabled: !!live, onclick: (e) => {
     if (!cT) { claudeWrite(r, n, field, '', cMsg, e.currentTarget); return; }
     const b = e.currentTarget;
-    cMsg.replaceChildren(el('div', { class: 'msg confirm-again' }, 'לכתוב מחדש מההתחלה? ' + (meet ? 'ההכנה הקיימת תוחלף.' : 'הטקסט הקיים יוחלף.') + ' (לתיקון נקודתי: הערה ל-Claude.) ',
+    cMsg.replaceChildren(el('div', { class: 'msg confirm-again' }, 'לכתוב מחדש ולמחוק את הגרסה הקיימת? ' + (meet ? 'מסמך ההכנה הקיים למעלה' : 'הטקסט הקיים למעלה') + ' יימחק וקלוד יכתוב אותו מחדש לגמרי, לתיקון נקודתי (מומלץ!): השתמש בהערה ל-Claude. ',
       el('button', { type: 'button', class: 'btn primary small again-yes', onclick: () => claudeWrite(r, n, field, '', cMsg, b) }, 'כן, לכתוב מחדש'), ' ',
       el('button', { type: 'button', class: 'btn secondary small again-no', onclick: () => cMsg.replaceChildren() }, 'ביטול')));
   } }, cT ? 'כתיבה מחדש מההתחלה' : firstLabel);
