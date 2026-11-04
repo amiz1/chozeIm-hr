@@ -1143,7 +1143,14 @@ async function claudeWrite(r, n, field, comment, msg, btn, opts) {
     }
     if (res.rpart) { claudeRun.rpart = res.rpart; const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = '(בדיקה, חלק ' + res.rpart + ')'; }
     const box = document.getElementById('m_' + field);
-    if (box && currentClient === c.email && meetSel[c.email] === n && claudeRun.phase !== 'review') { if (box.tagName === 'TEXTAREA') { box.value = res.text; box.scrollTop = box.scrollHeight; } else box.replaceWith(docView(res.text, 'claude-writing', box.id)); const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = claudeProgress(claudeRun); }
+    if (box && currentClient === c.email && meetSel[c.email] === n && claudeRun.phase !== 'review') { if (box.tagName === 'TEXTAREA') { box.value = res.text; box.scrollTop = box.scrollHeight; } else {
+      // the box follows the words being written (its bottom), unless the יועץ scrolled up to read; back at the bottom, it follows again
+      const follow = claudeRun.follow !== false;
+      const nb = docView(res.text, 'claude-writing', box.id), top = box.scrollTop;
+      box.replaceWith(nb);
+      nb.scrollTop = follow ? nb.scrollHeight : top;
+      nb.addEventListener('scroll', () => { if (claudeRun) claudeRun.follow = nb.scrollHeight - nb.scrollTop - nb.clientHeight < 40; });
+    } const p = document.querySelector('.claude-live'); if (p && p.childNodes[2]) p.childNodes[2].textContent = claudeProgress(claudeRun); }
     if (res.done) break;
   }
   if (claudeRun.stop) { res = null; claudeFlash = { email: c.email, n: n, text: claudeRun.phase === 'review' ? 'הבדיקה נעצרה. הטיוטה נשמרה.' : 'נעצר. מה שנכתב עד העצירה לא נשמר; הטקסט הקודם נשאר.', error: claudeRun.phase !== 'review' }; }
