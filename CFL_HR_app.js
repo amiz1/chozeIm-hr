@@ -1243,18 +1243,29 @@ function manageCase(r) {
     el('div', { class: 'card' },
       el('div', { class: 'manage-row' }, el('div', {}, el('b', {}, 'ארכיון'),
         el('p', { class: 'hint' }, 'התיק יוסתר מרשימת הנועצים, וכל המידע נשמר. אפשר להחזיר אותו בכל עת (בסימון "ארכיון" ברשימה). לנועץ/ת לא משתנה דבר.')), arch),
-      me && me.admin ? el('div', { class: 'manage-row danger' }, el('div', {}, el('b', {}, 'מחיקה מלאה'),
-        el('p', { class: 'hint' }, 'מחיקת כל המידע על הנועץ/ת, לפי בקשה (חוק הגנת הפרטיות). אי אפשר לבטל. למנהלים בלבד, ודורש כניסה מחדש עם Google.')),
-        el('button', { type: 'button', class: 'btn danger small', id: 'deleteBtn', onclick: () => deleteDialog(r) }, 'מחיקה מלאה…')) : null,
-      me && me.admin ? emailRow(r) : null));
+      deleteRow(r),
+      emailRow(r)));
+}
+// Everyone sees these two; only an admin can use them (the server checks it too). Anyone else gets a message, and nothing happens.
+const ADMIN_ONLY = 'הפעולה הזו למנהלים בלבד. אפשר לבקש ממנהל/ת לבצע אותה.';
+function isAdmin() { return !!(me && me.admin); }
+function deleteRow(r) {
+  const msg = el('div', { 'aria-live': 'polite' });
+  return el('div', { class: 'manage-row danger' }, el('div', {}, el('b', {}, 'מחיקה מלאה'),
+    el('p', { class: 'hint' }, 'מחיקת כל המידע על הנועץ/ת, לפי בקשה (חוק הגנת הפרטיות). אי אפשר לבטל. למנהלים בלבד, ודורש כניסה מחדש עם Google.'), msg),
+    el('button', { type: 'button', class: 'btn danger small', id: 'deleteBtn', onclick: () => {
+      if (!isAdmin()) { msg.replaceChildren(msgBox(ADMIN_ONLY)); return; }
+      deleteDialog(r);
+    } }, 'מחיקה מלאה…'));
 }
 
-// "שינוי אימייל" (admins): the whole תיק moves to another address (a temporary one from an import, or another Google account)
+// "שינוי אימייל" (admins; others see it and get a message): the whole תיק moves to another address (a temporary one from an import, or another Google account)
 function emailRow(r) {
   const c = r.client;
   const msg = el('div', { 'aria-live': 'polite' });
   const inp = el('input', { type: 'email', id: 'newEmail', dir: 'ltr', autocomplete: 'off', placeholder: 'name@gmail.com', 'aria-label': 'האימייל החדש' });
   const btn = el('button', { type: 'button', class: 'btn secondary small', id: 'emailBtn', onclick: () => {
+    if (!isAdmin()) { msg.replaceChildren(msgBox(ADMIN_ONLY)); return; }
     const to = inp.value.trim().toLowerCase();
     if (!to) { msg.replaceChildren(msgBox('כתבו את האימייל החדש.')); return; }
     msg.replaceChildren(el('div', { class: 'msg confirm-again' }, 'להעביר את כל התיק מ-', el('bdi', { dir: 'ltr' }, c.email), ' ל-', el('bdi', { dir: 'ltr' }, to), '? הכניסה לאתר הנועצים תהיה מעכשיו עם הכתובת החדשה. ',
